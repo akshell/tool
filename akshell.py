@@ -26,6 +26,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+from fnmatch import fnmatch
 from getpass import getpass
 from optparse import OptionParser, Option, SUPPRESS_HELP
 import cookielib
@@ -228,12 +229,14 @@ class _DestDir(_DestEntry):
             if options.clean:
                 names = self.place.get().names
                 for name in names:
-                    if name not in source.names:
+                    if (name not in source.names and
+                        not options.is_ignored(name)):
                         self.place.get_child(name).delete()
             for name in source.names:
-                _deploy(source.place.get_child(name),
-                        self.place.get_child(name),
-                        options)
+                if not options.is_ignored(name):
+                    _deploy(source.place.get_child(name),
+                            self.place.get_child(name),
+                            options)
                 
 
 class _EmptyDest(_DestEntry):
@@ -447,9 +450,16 @@ class _LocalPlace(_Place):
     
 class Options(object):
     '''Options of get and put AppData methods'''
-    def __init__(self, force=False, clean=False):
+    def __init__(self, force=False, clean=False, ignores=[]):
         self.force = force
         self.clean = clean
+        self._ignores = ignores
+
+    def is_ignored(self, name):
+        for wildcard in self._ignores:
+            if fnmatch(name, wildcard):
+                return True
+        return False
 
 
 class Callbacks(object):
@@ -630,6 +640,7 @@ def _parse_spot_option(spot_option):
 
     
 def _get_put_command(args, command_name, descr_title, app_data_method):
+    default_ignores = ('*~', '*.bak', '.*', '#*')
     parser = _CommandOptionParser(
         usage='usage: akshell %s APP [options] [PATH]' % command_name,
         description=descr_title + '''
@@ -656,32 +667,42 @@ use with caution!'''),
                      Option('-q', '--quiet',
                             default=False, action='store_true',
                             help='Print nothing'),
+                     Option('-i', '--ignore',
+                            help='''\
+colon separated list of ignored filename wildcards, defaults to '%s\''''
+                            % ':'.join(default_ignores)),
                      ))
     if command_name == 'put':
         parser.add_option('-e', '--expr',
                           help='''\
 Evaluate EXPR after put, print a value or an exception''')
-    options, args = parser.parse_args(args)
+    opts, args = parser.parse_args(args)
     if not args or len(args) > 2:
         sys.stderr.write("'%s' command requires 1 or 2 arguments.\n"
                          % command_name)
         sys.exit(1)
     app_name = args[0]
     path = args[1] if len(args) > 1 else None
-    owner_name, spot_name = _parse_spot_option(options.spot)
-    callbacks = (Callbacks() if options.quiet else
+    owner_name, spot_name = _parse_spot_option(opts.spot)
+    callbacks = (Callbacks() if opts.quiet else
                  Callbacks(save=_make_print_callback('S  '),
                            create=_make_print_callback('C  '),
                            delete=_make_print_callback('D  '),
                            ))
     app_data = AppData(app_name, spot_name, owner_name)
-    if options.loc:
-        if options.loc in STORAGE_NAMES:
-            storage_name = options.loc
+    options = Options(force=opts.force, clean=opts.clean,
+                      ignores=([wildcard
+                                for wildcard in opts.ignore.split(':')
+                                if wildcard]
+                               if opts.ignore is not None else
+                               default_ignores))
+    if opts.loc:
+        if opts.loc in STORAGE_NAMES:
+            storage_name = opts.loc
             remote_path = ''
         else:
             try:
-                storage_name, remote_path = options.loc.split(':', 1)
+                storage_name, remote_path = opts.loc.split(':', 1)
                 remote_path = remote_path.strip('/')
             except ValueError:
                 sys.stderr.write(
@@ -709,8 +730,8 @@ Evaluate EXPR after put, print a value or an exception''')
             app_data_method(app_data, storage_name, '',
                             os.path.join(path, storage_name),
                             options, callbacks)
-    if getattr(options, 'expr', None):
-        print app_data.evaluate(options.expr)[1]
+    if getattr(opts, 'expr', None):
+        print app_data.evaluate(opts.expr)[1]
             
 
 def get_command(args):
@@ -739,11 +760,11 @@ Print a value or an exception occured.
         option_list=(Option('-s', '--spot',
                             help='Spot identifier as [OWNER:]NAME'),
                      ))
-    options, args = parser.parse_args(args)
+    opts, args = parser.parse_args(args)
     if len(args) != 2:
         sys.stderr.write("'eval' command requires 2 arguments\n")
         sys.exit(1)
-    owner_name, spot_name = _parse_spot_option(options.spot)
+    owner_name, spot_name = _parse_spot_option(opts.spot)
     print AppData(args[0], spot_name, owner_name).evaluate(args[1])[1]
     
 

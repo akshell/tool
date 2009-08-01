@@ -282,14 +282,23 @@ class WorkTestCase(_ToolTestCase):
         _write('file', 'some text')
         os.mkdir('some_dir')
         shutil.rmtree('dir')
-        output = self._launch(['put', APP, '-c', '-l', 'code', '.'])
+        _write('backup~', '')
+        _write('1.bak', '')
+        output = self._launch(
+            ['put', APP, '-c', '-l', 'code', '-i', ':*~::::*.bak::', '.'])
         self.assert_('file' in output)
         self.assert_('some_dir' in output)
         self.assert_('dir' in output)
+        self.assert_('backup~' not in output)
+        self.assert_('1.bak' not in output)
         os.rmdir('some_dir')
         _write('some_dir', '')
         self.assert_('some_dir' in
                      self._launch(['put', APP, '-f', '-l', 'code', '.']))
+        self._launch(['get', APP, '-c', '-l', 'code', '.'])
+        self.assert_(os.path.exists('backup~'))
+        self._launch(['get', APP, '-c', '-l', 'code', '-i', '', '.'])
+        self.assert_(not os.path.exists('backup~'))
 
     def testEval(self):
         self.assertEqual(self._launch(['eval', APP, 'x']), '42\n')
