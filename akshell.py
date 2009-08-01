@@ -140,7 +140,7 @@ def login(name, password):
 
     '''
     cookie = cookielib.MozillaCookieJar(COOKIE_PATH)    
-    response = _make_request('http://%s/main/login/' % SERVER,
+    response = _make_request('http://%s/login/' % SERVER,
                              urllib.urlencode({'name': name,
                                                'password': password,
                                                }),
@@ -601,7 +601,7 @@ def login_command(args):
     parser.parse_args(args)
     try:
         name = raw_input('Name: ')
-        password = getpass('Password: ', sys.stdout)
+        password = getpass('Password: ')
     except EOFError:
         print
         return
