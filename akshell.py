@@ -593,7 +593,7 @@ def help_command(args):
         try:
             command_handler = _command_handlers[command]
         except KeyError:
-            sys.stderr.write("'%s': unknown command" % command)
+            sys.stderr.write('"%s": unknown command' % command)
         else:
             if not is_first:
                 print
@@ -644,8 +644,8 @@ def _get_put_command(args, command_name, descr_title, app_data_method):
     parser = _CommandOptionParser(
         usage='usage: akshell %s APP [options] [PATH]' % command_name,
         description=descr_title + '''
-Unless 'quiet' option is set print saved files (S mark), created
-directories (C mark) and deleted entries if 'force' or 'clean' is set
+Unless "quiet" option is set print saved files (S mark), created
+directories (C mark) and deleted entries if "force" or "clean" is set
 (D mark).
 If PATH is omited the first avaliable of the base name of the location
 path, the location storage name, the spot name, the app name is used.
@@ -669,7 +669,7 @@ use with caution!'''),
                             help='Print nothing'),
                      Option('-i', '--ignore',
                             help='''\
-colon separated list of ignored filename wildcards, defaults to '%s\''''
+colon separated list of ignored filename wildcards, defaults to "%s"'''
                             % ':'.join(default_ignores)),
                      ))
     if command_name == 'put':
@@ -678,7 +678,7 @@ colon separated list of ignored filename wildcards, defaults to '%s\''''
 Evaluate EXPR after put, print a value or an exception''')
     opts, args = parser.parse_args(args)
     if not args or len(args) > 2:
-        sys.stderr.write("'%s' command requires 1 or 2 arguments.\n"
+        sys.stderr.write('"%s" command requires 1 or 2 arguments.\n'
                          % command_name)
         sys.exit(1)
     app_name = args[0]
@@ -762,7 +762,7 @@ Print a value or an exception occured.
                      ))
     opts, args = parser.parse_args(args)
     if len(args) != 2:
-        sys.stderr.write("'eval' command requires 2 arguments\n")
+        sys.stderr.write('"eval" command requires 2 arguments\n')
         sys.exit(1)
     owner_name, spot_name = _parse_spot_option(opts.spot)
     print AppData(args[0], spot_name, owner_name).evaluate(args[1])[1]

@@ -62,7 +62,7 @@ SPOT = %s
 ''' % tuple(repr(var) for var in (USER, PASSWORD, APP, SPOT)))
     finally:
         f.close()
-    print "Config file 'test_vars.py' was generated."
+    print 'Config file "test_vars.py" was generated.'
 
 
 class _ToolTestCase(unittest.TestCase):
