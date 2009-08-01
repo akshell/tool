@@ -124,7 +124,7 @@ class CommandTestCase(_ToolTestCase):
 
     def testLoginLogout(self):
         try:
-            akshell.getpass = lambda prompt, stream_: raw_input(prompt)
+            akshell.getpass = lambda prompt: raw_input(prompt)
             credentials = '%s\n%s\n' % (USER, PASSWORD)
             self._launch('login', input=credentials)
             self._launch('login', input=credentials)
@@ -276,6 +276,9 @@ class WorkTestCase(_ToolTestCase):
 
     def testPut(self):
         self._launch(['get', APP, '-l', 'code', '.'])
+        self.assertEqual(
+            self._launch(['put', APP, '-q', '-l', 'code', '-e', 'x', '.']),
+            '42\n')
         _write('file', 'some text')
         os.mkdir('some_dir')
         shutil.rmtree('dir')

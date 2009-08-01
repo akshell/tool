@@ -657,6 +657,10 @@ use with caution!'''),
                             default=False, action='store_true',
                             help='Print nothing'),
                      ))
+    if command_name == 'put':
+        parser.add_option('-e', '--expr',
+                          help='''\
+Evaluate EXPR after put, print a value or an exception''')
     options, args = parser.parse_args(args)
     if not args or len(args) > 2:
         sys.stderr.write("'%s' command requires 1 or 2 arguments.\n"
@@ -670,6 +674,7 @@ use with caution!'''),
                            create=_make_print_callback('C  '),
                            delete=_make_print_callback('D  '),
                            ))
+    app_data = AppData(app_name, spot_name, owner_name)
     if options.loc:
         if options.loc in STORAGE_NAMES:
             storage_name = options.loc
@@ -690,7 +695,6 @@ use with caution!'''),
                     path = remote_path
             else:
                 path = storage_name
-        app_data = AppData(app_name, spot_name, owner_name)
         app_data_method(app_data, storage_name, remote_path, path,
                         options, callbacks)
     else:
@@ -702,10 +706,11 @@ use with caution!'''),
             except OSError as error:
                 if error.errno != errno.EEXIST: raise
         for storage_name in STORAGE_NAMES:
-            app_data = AppData(app_name, spot_name, owner_name)
             app_data_method(app_data, storage_name, '',
                             os.path.join(path, storage_name),
                             options, callbacks)
+    if getattr(options, 'expr', None):
+        print app_data.evaluate(options.expr)[1]
             
 
 def get_command(args):
@@ -729,7 +734,7 @@ def eval_command(args):
         usage='usage: akshell eval APP [options] EXPR',
         description='''\
 Evaluate EXPR in release or spot version of application.
-Print a result of evaluation or an exception occured.
+Print a value or an exception occured.
 ''',
         option_list=(Option('-s', '--spot',
                             help='Spot identifier as [OWNER:]NAME'),
