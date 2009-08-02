@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 # Copyright (c) 2009, Anton Korenyushkin
 # All rights reserved.
@@ -284,6 +285,7 @@ class WorkTestCase(_ToolTestCase):
         shutil.rmtree('dir')
         _write('backup~', '')
         _write('1.bak', '')
+        _write('russian имя файла', '')
         output = self._launch(
             ['put', APP, '-c', '-l', 'code', '-i', ':*~::::*.bak::', '.'])
         self.assert_('file' in output)
@@ -296,6 +298,7 @@ class WorkTestCase(_ToolTestCase):
         self.assert_('some_dir' in
                      self._launch(['put', APP, '-f', '-l', 'code', '.']))
         self._launch(['get', APP, '-c', '-l', 'code', '.'])
+        self.assert_(os.path.exists('russian имя файла'))
         self.assert_(os.path.exists('backup~'))
         self._launch(['get', APP, '-c', '-l', 'code', '-i', '', '.'])
         self.assert_(not os.path.exists('backup~'))

@@ -370,9 +370,11 @@ class _RemotePlace(_Place):
         _make_request(parent_url, data, method='POST', code=httplib.FOUND)
 
     def get_child(self, name):
+        quoted_name = urllib.quote(name)
         return _RemotePlace(self._base_url,
                             self._storage_name,
-                            self._path + '/' + name if self._path else name,
+                            (self._path + '/' + quoted_name if self._path else
+                             quoted_name),
                             self._callbacks)
         
             
@@ -515,7 +517,7 @@ class AppData(object):
         '''Get the application data to a local storage'''
         assert storage_name in STORAGE_NAMES
         _deploy(_RemotePlace(self._get_base_url(), storage_name,
-                             remote_path, callbacks),
+                             urllib.quote(remote_path), callbacks),
                 _LocalPlace(path, callbacks),
                 options)
 
@@ -525,7 +527,7 @@ class AppData(object):
         assert storage_name in STORAGE_NAMES
         _deploy(_LocalPlace(path, callbacks),
                 _RemotePlace(self._get_base_url(), storage_name,
-                             remote_path, callbacks),
+                             urllib.quote(remote_path), callbacks),
                 options)
 
     def evaluate(self, expr):
@@ -533,11 +535,13 @@ class AppData(object):
         eval_url = ('http://%s/main/apps/%s/devs/%s/eval/'
                     % (SERVER,
                        self._app_name,
-                       self._owner_name if self._owner_name else _get_dev_name()))
-        data = urllib.urlencode({'data': 'spot' if self._spot_name else 'release',
-                                 'spot_name': self._spot_name if self._spot_name else '',
-                                 'expr': expr,
-                                 })
+                       (self._owner_name if self._owner_name else
+                        _get_dev_name())))
+        data = urllib.urlencode({
+                'data': 'spot' if self._spot_name else 'release',
+                'spot_name': self._spot_name if self._spot_name else '',
+                'expr': expr,
+                })
         response = _make_request(eval_url, data, code=httplib.OK)
         status, data = response.read().split('\n', 1)
         return (status == 'OK'), data
