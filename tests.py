@@ -149,14 +149,9 @@ class CommandTestCase(_ToolTestCase):
 
     def testGetPut(self):
         self._launch('get 1 2 3', code=1)
-        self._launch('get -l unknown test', code=1)
 
     def testEval(self):
         self._launch('eval 1 2 3', code=1)
-
-        
-def _get_path(*entries):
-    return os.path.join('.', *entries)
 
         
 def _write(path, data):
@@ -181,15 +176,13 @@ class WorkTestCase(_ToolTestCase):
         self._dir = tempfile.mkdtemp()
         self._old_cwd = os.getcwd()
         os.chdir(self._dir)
-        os.makedirs(_get_path('code', 'dir', 'subdir'))
-        os.makedirs(_get_path('media', 'templates'))
-        _write(_get_path('code', 'dir', 'hello.txt'), 'hello world')
-        _write(_get_path('code', 'main.js'), 'var x = 42;')
-        _write(_get_path('media', 'templates', 'test.txt'), 'test')
-        self._launch(['put', '-fc', APP, self._dir])
-        self._launch(['put', '-fcs', SPOT, APP, self._dir])
-        shutil.rmtree(_get_path('code'))
-        shutil.rmtree(_get_path('media'))
+        os.makedirs(os.path.join('dir', 'subdir'))
+        _write(os.path.join('dir', 'hello.txt'), 'hello world')
+        _write('__main__.js', 'var x = 42;')
+        self._launch(['put', '-fc', APP, '.'])
+        self._launch(['put', '-fc', '%s@%s' % (SPOT, APP), '.'])
+        shutil.rmtree('dir')
+        os.remove('__main__.js')
 
     def tearDown(self):
         os.chdir(self._old_cwd)
@@ -201,30 +194,32 @@ class WorkTestCase(_ToolTestCase):
         callbacks = akshell.Callbacks(save=lambda path: files.add(path),
                                       create=lambda path: dirs.add(path))
         akshell.logout()
-        akshell.AppData(APP).get('code', '', '.', callbacks=callbacks)
-        self.assertEqual(files, set([_get_path('main.js'),
-                                     _get_path('dir', 'hello.txt')]))
-        self.assertEqual(dirs, set([_get_path('dir'),
-                                    _get_path('dir', 'subdir')]))
-        self.assertEqual(_read(_get_path('dir', 'hello.txt')),
+        akshell.AppData(APP).get('', '.', callbacks=callbacks)
+        self.assertEqual(files, set([os.path.join('.', '__main__.js'),
+                                     os.path.join('.', 'dir', 'hello.txt')]))
+        self.assertEqual(dirs, set([os.path.join('.', 'dir'),
+                                    os.path.join('.', 'dir', 'subdir')]))
+        self.assertEqual(_read(os.path.join('dir', 'hello.txt')),
                          'hello world')
-        os.remove('main.js')
-        os.mkdir('main.js')
-        _write(_get_path('dir', 'hello.txt'), 'wuzzup')
-        self._launch(['get', APP, '-l', 'code', '.'], code=1)
-        self._launch(['get', APP, '-f', '-l', 'code', '.'])
-        os.rmdir(_get_path('dir', 'subdir'))
-        _write(_get_path('dir', 'subdir'), '')
-        self._launch(['get', APP, '-l', 'code', '.'], code=1)
+        os.remove('__main__.js')
+        os.mkdir('__main__.js')
+        _write(os.path.join('dir', 'hello.txt'), 'wuzzup')
+        self._launch(['get', APP, '.'], code=1)
+        self._launch(['get', '-f', APP, '.'])
+        self.assertEqual(_read(os.path.join('dir', 'hello.txt')),
+                         'hello world')
+        os.rmdir(os.path.join('dir', 'subdir'))
+        _write(os.path.join('dir', 'subdir'), '')
+        self._launch(['get', APP, '.'], code=1)
         os.mkdir('some_dir')
         _write('some_file', '')
-        self._launch(['get', APP, '-f', '-l', 'code', '.'])
+        self._launch(['get', '-f', APP, '.'])
         self.assert_(os.path.exists('some_dir'))
         self.assert_(os.path.exists('some_file'))
-        self._launch(['get', APP, '-c', '-l', 'code', '.'])
+        self._launch(['get', '-c', APP, '.'])
         self.assert_(not os.path.exists('some_dir'))
         self.assert_(not os.path.exists('some_file'))
-        os.remove('main.js')
+        os.remove('__main__.js')
         shutil.rmtree('dir')
         self.assert_(not os.listdir('.'))
         self._launch(['get', APP])
@@ -233,32 +228,28 @@ class WorkTestCase(_ToolTestCase):
         shutil.rmtree(APP)
         self.assertEqual(
             set(string.split()[1] for string in
-                self._launch(['get', APP, '-l', 'media']).split('\n')
+                self._launch(['get', '%s:%s' % (APP, 'dir')]).split('\n')
                 if string),
-            set(['media', 'media/templates', 'media/templates/test.txt']))
-        shutil.rmtree('media')
+            set(['dir',
+                 os.path.join('dir', 'subdir'),
+                 os.path.join('dir', 'hello.txt')]))
 
     def testGetSpot(self):
-        self._launch(['get', APP,
-                      '-s', '%s:%s' % (USER, SPOT),
-                      '-l', 'code:dir',
-                      ])
+        self._launch(['get', '%s:%s@%s:%s' % (USER, SPOT, APP, 'dir')])
         self.assert_(os.path.isdir('dir'))
-        shutil.rmtree('dir')
-        self._launch(['get', APP,
-                      '-s', '%s:%s' % (USER, SPOT),
-                      '-l', 'code',
-                      ])
-        self.assert_(os.path.isdir('code'))
-        shutil.rmtree('code')
+        self._launch(['get', '%s:%s@%s' % (USER, SPOT, APP)])
+        self.assert_(os.path.isdir(SPOT))
+        shutil.rmtree(SPOT)
+        self._launch(['get', '%s@%s' % (SPOT, APP)])
+        self.assert_(os.path.isdir(SPOT))
 
     def testExceptions(self):
         spot_data = akshell.AppData(APP, spot_name=SPOT)
         akshell.logout()
         self.assertRaises(akshell.RequestError,
-                          lambda: spot_data.get('code', '', '.'))
+                          lambda: spot_data.get('', '.'))
         self.assertRaises(akshell.RequestError,
-                          lambda: spot_data.put('code', '', '.'))
+                          lambda: spot_data.put('', '.'))
         self.assertRaises(akshell.LoginRequiredError,
                           akshell.AppData,
                           APP, spot_name=SPOT)
@@ -270,15 +261,15 @@ class WorkTestCase(_ToolTestCase):
                           APP, owner_name=USER)
         self.assertRaises(
             akshell.RequestError,
-            lambda: akshell.AppData(APP).get('code', 'no_such_entry', '.'))
+            lambda: akshell.AppData(APP).get('no_such_entry', '.'))
         _write('file', '')
         self.assertRaises(akshell.RequestError,
-                          lambda: akshell.AppData(APP).put('code', '', '.'))
+                          lambda: akshell.AppData(APP).put('', '.'))
 
     def testPut(self):
-        self._launch(['get', APP, '-l', 'code', '.'])
+        self._launch(['get', APP, '.'])
         self.assertEqual(
-            self._launch(['put', APP, '-q', '-l', 'code', '-e', 'x', '.']),
+            self._launch(['put', '-q', APP, '.', '-e', 'x']),
             '42\n')
         _write('file', 'some text')
         os.mkdir('some_dir')
@@ -287,7 +278,7 @@ class WorkTestCase(_ToolTestCase):
         _write('1.bak', '')
         _write('russian имя файла', '')
         output = self._launch(
-            ['put', APP, '-c', '-l', 'code', '-i', ':*~::::*.bak::', '.'])
+            ['put', '-c', '-i', ':*~::::*.bak::', APP, '.'])
         self.assert_('file' in output)
         self.assert_('some_dir' in output)
         self.assert_('dir' in output)
@@ -296,18 +287,18 @@ class WorkTestCase(_ToolTestCase):
         os.rmdir('some_dir')
         _write('some_dir', '')
         self.assert_('some_dir' in
-                     self._launch(['put', APP, '-f', '-l', 'code', '.']))
-        self._launch(['get', APP, '-c', '-l', 'code', '.'])
+                     self._launch(['put', '-f', APP, '.']))
+        self._launch(['get', '-c', APP, '.'])
         self.assert_(os.path.exists('russian имя файла'))
         self.assert_(os.path.exists('backup~'))
-        self._launch(['get', APP, '-c', '-l', 'code', '-i', '', '.'])
+        self._launch(['get', '-c', '-i', '', APP, '.'])
         self.assert_(not os.path.exists('backup~'))
 
     def testEval(self):
         self.assertEqual(self._launch(['eval', APP, 'x']), '42\n')
         self._launch(['eval', APP, '-s', SPOT, 'y=1'])
         self.assertEqual(self._launch(['eval', APP, '-s', SPOT, 'y']), '1\n')
-        self.assert_(self._launch(['eval', APP, 'y']).startswith('Exception'))
+        self.assert_('ReferenceError' in self._launch(['eval', APP, 'y']))
         
 
 def suite():

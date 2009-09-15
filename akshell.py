@@ -50,7 +50,6 @@ __all__ = [
     'CONFIG_DIR',
     'COOKIE_PATH',
     'NAME_PATH',
-    'STORAGE_NAMES',
     
     'Error',
     'LoginRequiredError',
@@ -74,12 +73,6 @@ CONFIG_DIR = os.path.join(os.path.expanduser('~'), '.akshell')
 COOKIE_PATH = os.path.join(CONFIG_DIR, 'cookie')
 
 NAME_PATH = os.path.join(CONFIG_DIR, 'name')
-
-STORAGE_NAMES = ('code', 'media')
-
-_CODE_DIR = 'code'
-
-_MEDIA_DIR = 'media'
 
 ################################################################################
 # Errors
@@ -269,17 +262,17 @@ class _Place(object):
         def decorator(func):
             def decorated_func(self, *args, **kwds):
                 result = func(self, *args, **kwds)
-                getattr(self._callbacks, name)(self._pos)
+                getattr(self._callbacks, name)(self._path)
                 return result
             return decorated_func
         return decorator
 
-    def __init__(self, pos, callbacks):
-        self._pos = pos
+    def __init__(self, path, callbacks):
+        self._path = path
         self._callbacks = callbacks
 
     def raise_error(self, cls, msg):
-        raise cls('%s: %s' % (self._pos, msg))
+        raise cls('%s: %s' % (self._path, msg))
 
     def get_etag(self): raise NotImplemented()
     
@@ -304,16 +297,11 @@ def _is_response_for_dir(response):
     
 
 class _RemotePlace(_Place):
-    def __init__(self, base_url, storage_name, path, callbacks):
-        _Place.__init__(self, '%s:%s' % (storage_name, path), callbacks)
+    def __init__(self, base_url, path, callbacks):
+        _Place.__init__(self, path, callbacks)
         self._base_url = base_url
-        self._storage_name = storage_name
-        self._path = path
+        self._url = '%s/%s' % (self._base_url, self._path)
         self._etag = None
-
-    @property
-    def _url(self):
-        return '%s/%s/%s' % (self._base_url, self._storage_name, self._path)
 
     def get_etag(self):
         return self._etag
@@ -344,7 +332,7 @@ class _RemotePlace(_Place):
         if response.code == httplib.NOT_FOUND:
             return _EmptyDest(self)
         if response.code != httplib.OK:
-            raise RequestError(response.read())
+            raise RequestError(self._retrieve('GET', etag).read())
         return (_DestDir(self) if _is_response_for_dir(response) else
                 _DestFile(self))
 
@@ -360,9 +348,7 @@ class _RemotePlace(_Place):
     def create_as_dir(self):
         parent_path, separator_, name = self._path.rpartition('/')
         assert name
-        parent_url = '%s/%s/%s' % (self._base_url,
-                                   self._storage_name,
-                                   parent_path)
+        parent_url = '%s/%s' % (self._base_url, parent_path)
         data = urllib.urlencode({'action': 'create_entry',
                                  'type': 'dir',
                                  'name': name,
@@ -372,20 +358,19 @@ class _RemotePlace(_Place):
     def get_child(self, name):
         quoted_name = urllib.quote(name)
         return _RemotePlace(self._base_url,
-                            self._storage_name,
                             (self._path + '/' + quoted_name if self._path else
                              quoted_name),
                             self._callbacks)
         
             
 class _LocalPlace(_Place):
-    def __init__(self, pos, callbacks):
-        _Place.__init__(self, pos, callbacks)
+    def __init__(self, path, callbacks):
+        _Place.__init__(self, path, callbacks)
         self._data = None
         self._etag = None
         
     def _read(self):
-        f = open(self._pos, 'rb')
+        f = open(self._path, 'rb')
         try:
             return f.read()
         finally:
@@ -409,13 +394,13 @@ class _LocalPlace(_Place):
                 self._data = self._read()
             except IOError as error:
                 if error.errno != errno.EISDIR: raise
-                return _SourceDir(self, os.listdir(self._pos))
+                return _SourceDir(self, os.listdir(self._path))
         return _SourceFile(self, self._data)
 
     def head(self, etag=None):
         # If we are here etags are not equal
         try:
-            mode = os.stat(self._pos).st_mode
+            mode = os.stat(self._path).st_mode
         except OSError as error:
             if error.errno != errno.ENOENT: raise
             return _EmptyDest(self)
@@ -425,7 +410,7 @@ class _LocalPlace(_Place):
 
     @_Place._with_callback('save')
     def put(self, data):
-        f = open(self._pos, 'wb')
+        f = open(self._path, 'wb')
         try:
             f.write(data)
         finally:
@@ -434,17 +419,17 @@ class _LocalPlace(_Place):
     @_Place._with_callback('delete')
     def delete(self):
         try:
-            os.remove(self._pos)
+            os.remove(self._path)
         except OSError as error:
             if error.errno != errno.EISDIR: raise
-            shutil.rmtree(self._pos)
+            shutil.rmtree(self._path)
 
     @_Place._with_callback('create')
     def create_as_dir(self):
-        os.mkdir(self._pos)
+        os.mkdir(self._path)
 
     def get_child(self, name):
-        return _LocalPlace(os.path.join(self._pos, name), self._callbacks)
+        return _LocalPlace(os.path.join(self._path, name), self._callbacks)
     
 ################################################################################
 # Options, Callbacks, EvalResult, AppData
@@ -512,22 +497,20 @@ class AppData(object):
                  'release'))
                           
         
-    def get(self, storage_name, remote_path, path,
-            options=Options(), callbacks=Callbacks()):
+    def get(self, remote_path, path, options=Options(), callbacks=Callbacks()):
         '''Get the application data to a local storage'''
-        assert storage_name in STORAGE_NAMES
-        _deploy(_RemotePlace(self._get_base_url(), storage_name,
-                             urllib.quote(remote_path), callbacks),
+        _deploy(_RemotePlace(self._get_base_url(),
+                             urllib.quote(remote_path),
+                             callbacks),
                 _LocalPlace(path, callbacks),
                 options)
 
-    def put(self, storage_name, remote_path, path,
-            options=Options(), callbacks=Callbacks()):
+    def put(self, remote_path, path, options=Options(), callbacks=Callbacks()):
         '''Put data to the application from a local storage'''
-        assert storage_name in STORAGE_NAMES
         _deploy(_LocalPlace(path, callbacks),
-                _RemotePlace(self._get_base_url(), storage_name,
-                             urllib.quote(remote_path), callbacks),
+                _RemotePlace(self._get_base_url(),
+                             urllib.quote(remote_path),
+                             callbacks),
                 options)
 
     def evaluate(self, expr):
@@ -646,19 +629,17 @@ def _parse_spot_option(spot_option):
 def _get_put_command(args, command_name, descr_title, app_data_method):
     default_ignores = ('*~', '*.bak', '.*', '#*')
     parser = _CommandOptionParser(
-        usage='usage: akshell %s APP [options] [PATH]' % command_name,
+        usage=('Usage: akshell %s [options] '
+               '[[USER:]SPOT@]APP[:REMOTE_PATH] [LOCAL_PATH]'
+               % command_name),
         description=descr_title + '''
 Unless "quiet" option is set print saved files (S mark), created
 directories (C mark) and deleted entries if "force" or "clean" is set
 (D mark).
-If PATH is omited the first avaliable of the base name of the location
-path, the location storage name, the spot name, the app name is used.
+If LOCAL_PATH is omited the first avaliable of REMOTE_PATH base name,
+SPOT and APP is used.
 ''',
-        option_list=(Option('-s', '--spot',
-                            help='Spot identifier as [OWNER:]NAME'),
-                     Option('-l', '--loc',
-                            help='Location as (code|media)[:PATH]'),
-                     Option('-f', '--force',
+        option_list=(Option('-f', '--force',
                             default=False, action='store_true',
                             help='''\
 Remove destination entries on file-directory and directory-file mismatch;
@@ -685,55 +666,36 @@ Evaluate EXPR after put, print a value or an exception''')
         sys.stderr.write('"%s" command requires 1 or 2 arguments.\n'
                          % command_name)
         sys.exit(1)
-    app_name = args[0]
-    path = args[1] if len(args) > 1 else None
-    owner_name, spot_name = _parse_spot_option(opts.spot)
+    parts = args[0].split('@', 1)
+    if len(parts) > 1:
+        try:
+            owner_name, spot_name = parts[0].split(':', 1)
+        except ValueError:
+            owner_name, spot_name = None, parts[0]
+    else:
+        owner_name, spot_name = None, None
+    try:
+        app_name, remote_path = parts[-1].split(':', 1)
+    except ValueError:
+        app_name, remote_path = parts[-1], ''
+    app_data = AppData(app_name, spot_name, owner_name)
     callbacks = (Callbacks() if opts.quiet else
                  Callbacks(save=_make_print_callback('S  '),
                            create=_make_print_callback('C  '),
                            delete=_make_print_callback('D  '),
                            ))
-    app_data = AppData(app_name, spot_name, owner_name)
     options = Options(force=opts.force, clean=opts.clean,
                       ignores=([wildcard
                                 for wildcard in opts.ignore.split(':')
                                 if wildcard]
                                if opts.ignore is not None else
                                default_ignores))
-    if opts.loc:
-        if opts.loc in STORAGE_NAMES:
-            storage_name = opts.loc
-            remote_path = ''
-        else:
-            try:
-                storage_name, remote_path = opts.loc.split(':', 1)
-                remote_path = remote_path.strip('/')
-            except ValueError:
-                sys.stderr.write(
-                    'Location must be specified as (code|media)[:PATH]\n')
-                sys.exit(1)
-        if path is None:
-            if remote_path:
-                try:
-                    path = remote_path.rsplit('/', 1)[1]
-                except IndexError:
-                    path = remote_path
-            else:
-                path = storage_name
-        app_data_method(app_data, storage_name, remote_path, path,
-                        options, callbacks)
-    else:
-        if path is None:
-            path = app_name
-        if command_name == 'get':
-            try:
-                os.mkdir(path)
-            except OSError as error:
-                if error.errno != errno.EEXIST: raise
-        for storage_name in STORAGE_NAMES:
-            app_data_method(app_data, storage_name, '',
-                            os.path.join(path, storage_name),
-                            options, callbacks)
+    path = (args[1] if len(args) > 1 else
+            os.path.basename(remote_path.rstrip('/')) or
+            spot_name or
+            app_name)
+    app_data_method(app_data, remote_path, path,
+                    options, callbacks)
     if getattr(opts, 'expr', None):
         print app_data.evaluate(opts.expr)[1]
             
@@ -756,7 +718,7 @@ Put files to release or spot application data on http://akshell.com.''',
 
 def eval_command(args):
     parser = _CommandOptionParser(
-        usage='usage: akshell eval APP [options] EXPR',
+        usage='Usage: akshell eval APP [options] EXPR',
         description='''\
 Evaluate EXPR in release or spot version of application.
 Print a value or an exception occured.
