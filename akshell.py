@@ -103,8 +103,8 @@ class _Request(urllib2.Request):
     
 def _make_request(url, data=None, method=None, headers=None,
                   code=None, cookie=None):
-    if headers is None:
-        headers = {'Accept': 'text/plain'}
+    headers = {'Accept': 'text/plain'} if headers is None else headers.copy()
+    headers['User-Agent'] = 'akshell ' + __version__
     if cookie is None:
         cookie = cookielib.MozillaCookieJar(COOKIE_PATH)
         try:
