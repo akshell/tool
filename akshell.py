@@ -289,19 +289,17 @@ class _Place(object):
     def get_child(self, name): raise NotImplemented()
 
 
-def _is_response_for_dir(response):
-    content_type = response.headers['Content-Type']
-    assert content_type in ('text/plain; charset=utf-8',
-                            'application/octet-stream')
-    return content_type == 'text/plain; charset=utf-8'
-    
-
 class _RemotePlace(_Place):
     def __init__(self, base_url, path, callbacks):
         _Place.__init__(self, path, callbacks)
         self._base_url = base_url
-        self._url = '%s/%s' % (self._base_url, self._path)
         self._etag = None
+
+    def _get_url(self):
+        return '%s/%s' % (self._base_url, self._path)
+
+    def _is_dir(self):
+        return not self._path or self._path.endswith('/')
 
     def get_etag(self):
         return self._etag
@@ -310,16 +308,23 @@ class _RemotePlace(_Place):
         headers = {'Accept': 'text/plain, application/octet-stream'}
         if etag is not None:
             headers['If-None-Match'] = etag
-        return _make_request(self._url, method=method, headers=headers)
+        response = _make_request(self._get_url(),
+                                 method=method,
+                                 headers=headers)
+        if response.code == httplib.MOVED_PERMANENTLY:
+            self._path = response.headers['Location'][len(self._base_url) + 1:]
+        return response
     
     def get(self, etag=None):
         response = self._retrieve('GET', etag)
+        if response.code == httplib.MOVED_PERMANENTLY:
+            return self.get(etag)
         if response.code == httplib.NOT_MODIFIED:
             return None
         data = response.read()
         if response.code != httplib.OK:
             raise RequestError(data)
-        if _is_response_for_dir(response):
+        if self._is_dir():
             return _SourceDir(self, [name for name in data.split('\n') if name])
         else:
             self._etag = response.headers['ETag']
@@ -331,18 +336,18 @@ class _RemotePlace(_Place):
             return None
         if response.code == httplib.NOT_FOUND:
             return _EmptyDest(self)
-        if response.code != httplib.OK:
+        if response.code not in (httplib.OK, httplib.MOVED_PERMANENTLY):
             raise RequestError(self._retrieve('GET', etag).read())
-        return (_DestDir(self) if _is_response_for_dir(response) else
+        return (_DestDir(self) if self._is_dir() else
                 _DestFile(self))
 
     @_Place._with_callback('save')
     def put(self, data):
-        _make_request(self._url, data, method='PUT', code=httplib.OK)
+        _make_request(self._get_url(), data, method='PUT', code=httplib.OK)
 
     @_Place._with_callback('delete')
     def delete(self):
-        _make_request(self._url, method='DELETE', code=httplib.OK)
+        _make_request(self._get_url(), method='DELETE', code=httplib.OK)
 
     @_Place._with_callback('create')
     def create_as_dir(self):
@@ -358,8 +363,7 @@ class _RemotePlace(_Place):
     def get_child(self, name):
         quoted_name = urllib.quote(name)
         return _RemotePlace(self._base_url,
-                            (self._path + '/' + quoted_name if self._path else
-                             quoted_name),
+                            self._path + quoted_name,
                             self._callbacks)
         
             

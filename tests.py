@@ -228,7 +228,8 @@ class WorkTestCase(_ToolTestCase):
         shutil.rmtree(APP)
         self.assertEqual(
             set(string.split()[1] for string in
-                self._launch(['get', '%s:%s' % (APP, 'dir')]).split('\n')
+                (self._launch(['get', '%s:%s' % (APP, '///dir//../dir')])
+                 .split('\n'))
                 if string),
             set(['dir',
                  os.path.join('dir', 'subdir'),
