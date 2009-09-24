@@ -298,7 +298,7 @@ class _RemotePlace(_Place):
     def _get_url(self):
         return '%s/%s' % (self._base_url, self._path)
 
-    def _is_dir(self):
+    def _path_is_dir(self):
         return not self._path or self._path.endswith('/')
 
     def get_etag(self):
@@ -324,7 +324,7 @@ class _RemotePlace(_Place):
         data = response.read()
         if response.code != httplib.OK:
             raise RequestError(data)
-        if self._is_dir():
+        if self._path_is_dir():
             return _SourceDir(self, [name for name in data.split('\n') if name])
         else:
             self._etag = response.headers['ETag']
@@ -338,7 +338,7 @@ class _RemotePlace(_Place):
             return _EmptyDest(self)
         if response.code not in (httplib.OK, httplib.MOVED_PERMANENTLY):
             raise RequestError(self._retrieve('GET', etag).read())
-        return (_DestDir(self) if self._is_dir() else
+        return (_DestDir(self) if self._path_is_dir() else
                 _DestFile(self))
 
     @_Place._with_callback('save')
@@ -351,7 +351,7 @@ class _RemotePlace(_Place):
 
     @_Place._with_callback('create')
     def create_as_dir(self):
-        parent_path, separator_, name = self._path.rpartition('/')
+        parent_path, separator_, name = self._path.rstrip('/').rpartition('/')
         assert name
         parent_url = '%s/%s' % (self._base_url, parent_path)
         data = urllib.urlencode({'action': 'create_entry',
@@ -363,7 +363,9 @@ class _RemotePlace(_Place):
     def get_child(self, name):
         quoted_name = urllib.quote(name)
         return _RemotePlace(self._base_url,
-                            self._path + quoted_name,
+                            (self._path +
+                             ('' if self._path_is_dir() else '/') +
+                             quoted_name),
                             self._callbacks)
         
             
@@ -682,6 +684,7 @@ Evaluate EXPR after put, print a value or an exception''')
         app_name, remote_path = parts[-1].split(':', 1)
     except ValueError:
         app_name, remote_path = parts[-1], ''
+    app_name = app_name.strip('/')
     app_data = AppData(app_name, spot_name, owner_name)
     callbacks = (Callbacks() if opts.quiet else
                  Callbacks(save=_make_print_callback('S  '),
