@@ -237,8 +237,9 @@ class _EmptyDest(_DestEntry):
         if source.is_dir:
             self.place.create_as_dir()
             for name in source.names:
-                dest = _EmptyDest(self.place.get_child(name))
-                dest.take(source.place.get_child(name).get(), options)
+                if not options.is_ignored(name):
+                    dest = _EmptyDest(self.place.get_child(name))
+                    dest.take(source.place.get_child(name).get(), options)
         else:
             self.place.put(source.data)
                 
