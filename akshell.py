@@ -626,18 +626,23 @@ def _make_print_callback(prefix):
     return callback
 
 
-def _parse_spot_option(spot_option):
-    if spot_option:
-        result = spot_option.split(':', 1)
-        return result if len(result) == 2 else (None, spot_option)
-    return None, None
+def _parse_owner_spot_rest(arg):
+    try:
+        owner_spot, rest = arg.split('@', 1)
+    except ValueError:
+        return None, None, arg
+    try:
+        owner, spot = owner_spot.split(':', 1)
+    except ValueError:
+        return None, owner_spot, rest
+    return owner, spot, rest
 
-    
+
 def _get_put_command(args, command_name, descr_title, app_data_method):
     default_ignores = ('*~', '*.bak', '.*', '#*')
     parser = _CommandOptionParser(
         usage=('Usage: akshell %s [options] '
-               '[[USER:]SPOT@]APP[:REMOTE_PATH] [LOCAL_PATH]'
+               '[[OWNER:]SPOT@]APP[:REMOTE_PATH] [LOCAL_PATH]'
                % command_name),
         description=descr_title + '''
 Unless "quiet" option is set print saved files (S mark), created
@@ -673,18 +678,11 @@ Evaluate EXPR after put, print a value or an exception''')
         sys.stderr.write('"%s" command requires 1 or 2 arguments.\n'
                          % command_name)
         sys.exit(1)
-    parts = args[0].split('@', 1)
-    if len(parts) > 1:
-        try:
-            owner_name, spot_name = parts[0].split(':', 1)
-        except ValueError:
-            owner_name, spot_name = None, parts[0]
-    else:
-        owner_name, spot_name = None, None
+    owner_name, spot_name, rest = _parse_owner_spot_rest(args[0])
     try:
-        app_name, remote_path = parts[-1].split(':', 1)
+        app_name, remote_path = rest.split(':', 1)
     except ValueError:
-        app_name, remote_path = parts[-1], ''
+        app_name, remote_path = rest, ''
     app_name = app_name.strip('/')
     app_data = AppData(app_name, spot_name, owner_name)
     callbacks = (Callbacks() if opts.quiet else
@@ -726,20 +724,17 @@ Put files to release or spot application data on http://akshell.com.''',
 
 def eval_command(args):
     parser = _CommandOptionParser(
-        usage='Usage: akshell eval APP [options] EXPR',
+        usage='Usage: akshell eval [[OWNER:]SPOT@]APP EXPR',
         description='''\
 Evaluate EXPR in release or spot version of application.
 Print a value or an exception occured.
-''',
-        option_list=(Option('-s', '--spot',
-                            help='Spot identifier as [OWNER:]NAME'),
-                     ))
+''')
     opts, args = parser.parse_args(args)
     if len(args) != 2:
         sys.stderr.write('"eval" command requires 2 arguments\n')
         sys.exit(1)
-    owner_name, spot_name = _parse_spot_option(opts.spot)
-    print AppData(args[0], spot_name, owner_name).evaluate(args[1])[1]
+    owner_name, spot_name, app_name = _parse_owner_spot_rest(args[0])
+    print AppData(app_name, spot_name, owner_name).evaluate(args[1])[1]
     
 
 _command_handlers = {'login': login_command,

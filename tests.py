@@ -300,8 +300,9 @@ class WorkTestCase(_ToolTestCase):
 
     def testEval(self):
         self.assertEqual(self._launch(['eval', APP, 'x']), '42\n')
-        self._launch(['eval', APP, '-s', SPOT, 'y=1'])
-        self.assertEqual(self._launch(['eval', APP, '-s', SPOT, 'y']), '1\n')
+        place = '%s@%s' % (SPOT, APP)
+        self._launch(['eval', place, 'y=1'])
+        self.assertEqual(self._launch(['eval', place, 'y']), '1\n')
         self.assert_('ReferenceError' in self._launch(['eval', APP, 'y']))
         
 
