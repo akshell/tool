@@ -776,8 +776,6 @@ Type 'akshell help' for usage.
         sys.stderr.write('\nInterrupted!\n')
     except urllib2.URLError as error:
         sys.stderr.write(str(error.reason) + '\n')
-    except Exception as error:
-        sys.stderr.write(str(error) + '\n')
     sys.exit(1)
 
 

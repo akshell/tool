@@ -137,13 +137,6 @@ class CommandTestCase(_ToolTestCase):
                 raise KeyboardInterrupt
             akshell.getpass = interrupt
             self._launch('login', input=credentials, code=1)
-            def raise_exception(*args):
-                raise Exception('wuzzup')
-            akshell.getpass = raise_exception
-            self.assertEqual(
-                self._launch('login', input=credentials,
-                             code=1, stream='stderr'),
-                'wuzzup\n')
         finally:
             akshell.getpass = getpass
 
