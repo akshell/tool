@@ -191,7 +191,7 @@ class _SourceDir(_SourceEntry):
 
         
 class _DestEntry(_Entry):
-    def take(self, source, options): raise NotImplemented()
+    def take(self, source_, options_): raise NotImplemented()
 
     def _force(self, source, options):
         self.place.delete()
@@ -277,17 +277,17 @@ class _Place(object):
 
     def get_etag(self): raise NotImplemented()
     
-    def get(self, etag=None): raise NotImplemented()
+    def get(self, etag_=None): raise NotImplemented()
 
-    def head(self, etag=None): raise NotImplemented()
+    def head(self, etag_=None): raise NotImplemented()
 
-    def put(self, data): raise NotImplemented()
+    def put(self, data_): raise NotImplemented()
 
     def delete(self): raise NotImplemented()
 
     def create_as_dir(self): raise NotImplemented()
 
-    def get_child(self, name): raise NotImplemented()
+    def get_child(self, name_): raise NotImplemented()
 
 
 class _RemotePlace(_Place):
@@ -404,7 +404,7 @@ class _LocalPlace(_Place):
                 return _SourceDir(self, os.listdir(self._path))
         return _SourceFile(self, self._data)
 
-    def head(self, etag=None):
+    def head(self, etag_=None):
         # If we are here etags are not equal
         try:
             mode = os.stat(self._path).st_mode
@@ -444,10 +444,10 @@ class _LocalPlace(_Place):
     
 class Options(object):
     '''Options of get and put AppData methods'''
-    def __init__(self, force=False, clean=False, ignores=[]):
+    def __init__(self, force=False, clean=False, ignores=None):
         self.force = force
         self.clean = clean
-        self._ignores = ignores
+        self._ignores = ignores or []
 
     def is_ignored(self, name):
         for wildcard in self._ignores:
@@ -626,23 +626,23 @@ def _make_print_callback(prefix):
     return callback
 
 
-def _parse_owner_spot_rest(arg):
+def _parse_app_owner_spot(string):
     try:
-        owner_spot, rest = arg.split('@', 1)
+        app, owner_spot = string.split(':', 1)
     except ValueError:
-        return None, None, arg
+        return string, None, None
     try:
-        owner, spot = owner_spot.split(':', 1)
+        owner, spot = owner_spot.split('@', 1)
     except ValueError:
-        return None, owner_spot, rest
-    return owner, spot, rest
+        return app, None, owner_spot
+    return app, owner, spot
 
 
 def _get_put_command(args, command_name, descr_title, app_data_method):
     default_ignores = ('*~', '*.bak', '.*', '#*')
     parser = _CommandOptionParser(
         usage=('Usage: akshell %s [options] '
-               '[[OWNER:]SPOT@]APP[:REMOTE_PATH] [LOCAL_PATH]'
+               'APP[:[OWNER@]SPOT][/REMOTE_PATH] [LOCAL_PATH]'
                % command_name),
         description=descr_title + '''
 Unless "quiet" option is set print saved files (S mark), created
@@ -678,12 +678,8 @@ Evaluate EXPR after put, print a value or an exception''')
         sys.stderr.write('"%s" command requires 1 or 2 arguments.\n'
                          % command_name)
         sys.exit(1)
-    owner_name, spot_name, rest = _parse_owner_spot_rest(args[0])
-    try:
-        app_name, remote_path = rest.split(':', 1)
-    except ValueError:
-        app_name, remote_path = rest, ''
-    app_name = app_name.strip('/')
+    app_owner_spot, sep_, remote_path = args[0].partition('/')
+    app_name, owner_name, spot_name = _parse_app_owner_spot(app_owner_spot)
     app_data = AppData(app_name, spot_name, owner_name)
     callbacks = (Callbacks() if opts.quiet else
                  Callbacks(save=_make_print_callback('S  '),
@@ -724,16 +720,16 @@ Put files to release or spot application data on http://akshell.com.''',
 
 def eval_command(args):
     parser = _CommandOptionParser(
-        usage='Usage: akshell eval [[OWNER:]SPOT@]APP EXPR',
+        usage='Usage: akshell eval APP[:[OWNER@]SPOT] EXPR',
         description='''\
 Evaluate EXPR in release or spot version of application.
 Print a value or an exception occured.
 ''')
-    opts, args = parser.parse_args(args)
+    opts_, args = parser.parse_args(args)
     if len(args) != 2:
         sys.stderr.write('"eval" command requires 2 arguments\n')
         sys.exit(1)
-    owner_name, spot_name, app_name = _parse_owner_spot_rest(args[0])
+    app_name, owner_name, spot_name = _parse_app_owner_spot(args[0])
     print AppData(app_name, spot_name, owner_name).evaluate(args[1])[1]
     
 

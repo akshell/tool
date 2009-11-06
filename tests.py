@@ -36,6 +36,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import urllib2
 
 import coverage_color
 
@@ -137,6 +138,10 @@ class CommandTestCase(_ToolTestCase):
                 raise KeyboardInterrupt
             akshell.getpass = interrupt
             self._launch('login', input=credentials, code=1)
+            def raise_url_error(prompt_):
+                raise urllib2.URLError(None)
+            akshell.getpass = raise_url_error
+            self._launch('login', input=credentials, code=1)
         finally:
             akshell.getpass = getpass
 
@@ -174,7 +179,7 @@ class WorkTestCase(_ToolTestCase):
         _write(os.path.join('dir', 'hello.txt'), 'hello world')
         _write('__main__.js', 'var x = 42;')
         self._launch(['put', APP, '.'])
-        self._launch(['put', '-fc', '%s@%s' % (SPOT, APP), '.'])
+        self._launch(['put', '-fc', '%s:%s' % (APP, SPOT), '.'])
         shutil.rmtree('dir')
         os.remove('__main__.js')
 
@@ -183,6 +188,7 @@ class WorkTestCase(_ToolTestCase):
         shutil.rmtree(self._dir)
 
     def testGet(self):
+        self._launch(['get', 'no-such-app'], code=1)
         files = set()
         dirs = set()
         callbacks = akshell.Callbacks(save=lambda path: files.add(path),
@@ -222,7 +228,7 @@ class WorkTestCase(_ToolTestCase):
         shutil.rmtree(APP)
         self.assertEqual(
             set(string.split()[1] for string in
-                (self._launch(['get', '%s:%s' % (APP, '///dir//../dir')])
+                (self._launch(['get', APP + '///dir//../dir'])
                  .split('\n'))
                 if string),
             set(['dir',
@@ -230,12 +236,12 @@ class WorkTestCase(_ToolTestCase):
                  os.path.join('dir', 'hello.txt')]))
 
     def testGetSpot(self):
-        self._launch(['get', '%s:%s@%s:%s' % (USER, SPOT, APP, 'dir')])
+        self._launch(['get', '%s:%s@%s/dir' % (APP, USER, SPOT)])
         self.assert_(os.path.isdir('dir'))
-        self._launch(['get', '%s:%s@%s' % (USER, SPOT, APP)])
+        self._launch(['get', '%s:%s@%s' % (APP, USER, SPOT)])
         self.assert_(os.path.isdir(SPOT))
         shutil.rmtree(SPOT)
-        self._launch(['get', '%s@%s' % (SPOT, APP)])
+        self._launch(['get', '%s:%s' % (APP, SPOT)])
         self.assert_(os.path.isdir(SPOT))
 
     def testExceptions(self):
@@ -293,7 +299,7 @@ class WorkTestCase(_ToolTestCase):
 
     def testEval(self):
         self.assertEqual(self._launch(['eval', APP, 'x']), '42\n')
-        place = '%s@%s' % (SPOT, APP)
+        place = '%s:%s' % (APP, SPOT)
         self._launch(['eval', place, 'y=1'])
         self.assertEqual(self._launch(['eval', place, 'y']), '1\n')
         self.assert_('ReferenceError' in self._launch(['eval', APP, 'y']))
