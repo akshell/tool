@@ -66,7 +66,7 @@ __all__ = [
 
 __version__ = '0.1'
 
-SERVER = 'localhost:8000'
+SERVER = 'www.akshell.localhost:8000'
 
 CONFIG_DIR = os.path.join(os.path.expanduser('~'), '.akshell')
 
@@ -498,7 +498,7 @@ class AppData(object):
         self._owner_name = owner_name
 
     def _get_base_url(self):
-        return ('http://%s/main/apps/%s/' % (SERVER, self._app_name) +
+        return ('http://%s/apps/%s/' % (SERVER, self._app_name) +
                 ('devs/%s/spots/%s' % (self._owner_name, self._spot_name)
                  if self._spot_name else
                  'release'))
@@ -522,7 +522,7 @@ class AppData(object):
 
     def evaluate(self, expr):
         '''Evaluate expression in context of this application data'''
-        eval_url = ('http://%s/main/apps/%s/devs/%s/eval/'
+        eval_url = ('http://%s/apps/%s/devs/%s/eval/'
                     % (SERVER,
                        self._app_name,
                        (self._owner_name if self._owner_name else
