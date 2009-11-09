@@ -191,7 +191,7 @@ class _SourceDir(_SourceEntry):
 
         
 class _DestEntry(_Entry):
-    def take(self, source_, options_): raise NotImplemented()
+    def take(self, source, options): raise NotImplemented()
 
     def _force(self, source, options):
         self.place.delete()
@@ -277,17 +277,17 @@ class _Place(object):
 
     def get_etag(self): raise NotImplemented()
     
-    def get(self, etag_=None): raise NotImplemented()
+    def get(self, etag=None): raise NotImplemented()
 
-    def head(self, etag_=None): raise NotImplemented()
+    def head(self, etag=None): raise NotImplemented()
 
-    def put(self, data_): raise NotImplemented()
+    def put(self, data): raise NotImplemented()
 
     def delete(self): raise NotImplemented()
 
     def create_as_dir(self): raise NotImplemented()
 
-    def get_child(self, name_): raise NotImplemented()
+    def get_child(self, name): raise NotImplemented()
 
 
 class _RemotePlace(_Place):
@@ -404,7 +404,7 @@ class _LocalPlace(_Place):
                 return _SourceDir(self, os.listdir(self._path))
         return _SourceFile(self, self._data)
 
-    def head(self, etag_=None):
+    def head(self, etag=None):
         # If we are here etags are not equal
         try:
             mode = os.stat(self._path).st_mode
