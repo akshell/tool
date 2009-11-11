@@ -66,7 +66,7 @@ __all__ = [
 
 __version__ = '0.1'
 
-SERVER = 'www.akshell.localhost:8000'
+SERVER = 'www.akshell.loc:8000'
 
 CONFIG_DIR = os.path.join(os.path.expanduser('~'), '.akshell')
 
@@ -101,10 +101,12 @@ class _Request(urllib2.Request):
                 self._method)
 
     
-def _make_request(url, data=None, method=None, headers=None,
-                  code=None, cookie=None):
-    headers = {'Accept': 'text/plain'} if headers is None else headers.copy()
+def _make_request(url, data=None, method=None, code=None,
+                  cookie=None, etag=None):
+    headers = {'Accept': 'text/plain'}
     headers['User-Agent'] = 'akshell ' + __version__
+    if etag:
+        headers['If-None-Match'] = etag
     if cookie is None:
         cookie = cookielib.MozillaCookieJar(COOKIE_PATH)
         try:
@@ -307,11 +309,9 @@ class _RemotePlace(_Place):
 
     def _retrieve(self, method, etag):
         headers = {'Accept': 'text/plain, application/octet-stream'}
-        if etag is not None:
-            headers['If-None-Match'] = etag
         response = _make_request(self._get_url(),
                                  method=method,
-                                 headers=headers)
+                                 etag=etag)
         if response.code == httplib.MOVED_PERMANENTLY:
             self._path = response.headers['Location'][len(self._base_url) + 1:]
         return response
