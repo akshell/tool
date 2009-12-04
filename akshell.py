@@ -355,10 +355,7 @@ class _RemotePlace(_Place):
         parent_path, separator_, name = self._path.rstrip('/').rpartition('/')
         assert name
         parent_url = '%s/%s' % (self._base_url, parent_path)
-        data = urllib.urlencode({'action': 'create_entry',
-                                 'type': 'dir',
-                                 'name': name,
-                                 })
+        data = urllib.urlencode({'op': 'create_dir', 'name': name})
         _make_request(parent_url, data, method='POST', code=httplib.FOUND)
 
     def get_child(self, name):
@@ -501,7 +498,7 @@ class AppData(object):
         return ('http://%s/apps/%s/' % (SERVER, self._app_name) +
                 ('devs/%s/spots/%s' % (self._owner_name, self._spot_name)
                  if self._spot_name else
-                 'release'))
+                 'code'))
                           
         
     def get(self, remote_path, path, options=Options(), callbacks=Callbacks()):
@@ -522,14 +519,9 @@ class AppData(object):
 
     def evaluate(self, expr):
         '''Evaluate expression in context of this application data'''
-        eval_url = ('http://%s/apps/%s/devs/%s/eval/'
-                    % (SERVER,
-                       self._app_name,
-                       (self._owner_name if self._owner_name else
-                        _get_dev_name())))
+        eval_url = 'http://%s/apps/%s/eval/' % (SERVER, self._app_name)
         data = urllib.urlencode({
-                'data': 'spot' if self._spot_name else 'release',
-                'spot_name': self._spot_name if self._spot_name else '',
+                'spot': self._spot_name if self._spot_name else '',
                 'expr': expr,
                 })
         response = _make_request(eval_url, data, code=httplib.OK)
