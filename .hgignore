@@ -1,0 +1,6 @@
+syntax: glob
+
+build
+coverage.html
+.coverage
+test_vars.py
