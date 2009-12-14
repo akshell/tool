@@ -61,7 +61,8 @@ __all__ = [
     
     'Options',
     'Callbacks',
-    'AppData',
+    'transfer',
+    'evaluate',
     ]
 
 __version__ = '0.1'
@@ -308,7 +309,6 @@ class _RemotePlace(_Place):
         return self._etag
 
     def _retrieve(self, method, etag):
-        headers = {'Accept': 'text/plain, application/octet-stream'}
         response = _make_request(self._get_url(),
                                  method=method,
                                  etag=etag)
@@ -483,50 +483,38 @@ def _get_dev_name():
         f.close()
 
         
-class AppData(object):
-    '''Application data accessor'''
-    
-    def __init__(self, app_name, spot_name=None, owner_name=None):
-        assert owner_name is None or spot_name is not None
-        if owner_name is None and spot_name is not None:
-            owner_name = _get_dev_name()
-        self._app_name = app_name
-        self._spot_name = spot_name
-        self._owner_name = owner_name
-
-    def _get_base_url(self):
-        return ('http://%s/apps/%s/' % (SERVER, self._app_name) +
-                ('devs/%s/spots/%s' % (self._owner_name, self._spot_name)
-                 if self._spot_name else
+def transfer(app_name, owner_name=None, spot_name=None,
+             remote_path='', path=None,
+             from_server=True, options=Options(), callbacks=Callbacks()):
+    assert owner_name is None or spot_name is not None
+    if owner_name is None and spot_name is not None:
+        owner_name = _get_dev_name()
+    if path is None:
+        path = (os.path.basename(remote_path.rstrip('/')) or
+                spot_name or
+                app_name)
+    base_url = ('http://%s/apps/%s/' % (SERVER, app_name) +
+                ('devs/%s/spots/%s' % (owner_name.lower().replace(' ', '-'),
+                                       spot_name)
+                 if spot_name else
                  'code'))
-                          
+    remote_place = _RemotePlace(base_url, urllib.quote(remote_path), callbacks)
+    local_place = _LocalPlace(path, callbacks)
+    if from_server:
+        _deploy(remote_place, local_place, options)
+    else:
+        _deploy(local_place, remote_place, options)
+
         
-    def get(self, remote_path, path, options=Options(), callbacks=Callbacks()):
-        '''Get the application data to a local storage'''
-        _deploy(_RemotePlace(self._get_base_url(),
-                             urllib.quote(remote_path),
-                             callbacks),
-                _LocalPlace(path, callbacks),
-                options)
-
-    def put(self, remote_path, path, options=Options(), callbacks=Callbacks()):
-        '''Put data to the application from a local storage'''
-        _deploy(_LocalPlace(path, callbacks),
-                _RemotePlace(self._get_base_url(),
-                             urllib.quote(remote_path),
-                             callbacks),
-                options)
-
-    def evaluate(self, expr):
-        '''Evaluate expression in context of this application data'''
-        eval_url = 'http://%s/apps/%s/eval/' % (SERVER, self._app_name)
-        data = urllib.urlencode({
-                'spot': self._spot_name if self._spot_name else '',
-                'expr': expr,
-                })
-        response = _make_request(eval_url, data, code=httplib.OK)
-        status, data = response.read().split('\n', 1)
-        return (status == 'OK'), data
+def evaluate(app_name, spot_name, expr):
+    '''Evaluate expression in release or spot context'''
+    response = _make_request('http://%s/apps/%s/eval/' % (SERVER, app_name),
+                             urllib.urlencode({'spot': spot_name or '',
+                                               'expr': expr,
+                                               }),
+                             code=httplib.OK)
+    status, data = response.read().split('\n', 1)
+    return (status == 'OK'), data
 
 ################################################################################
 # Commands
@@ -630,7 +618,7 @@ def _parse_app_owner_spot(string):
     return app, owner, spot
 
 
-def _get_put_command(args, command_name, descr_title, app_data_method):
+def _transfer_command(args, command_name, descr_title, from_server):
     default_ignores = ('*~', '*.bak', '.*', '#*')
     parser = _CommandOptionParser(
         usage=('Usage: akshell %s [options] '
@@ -661,7 +649,7 @@ use with caution!'''),
 colon separated list of ignored filename wildcards, defaults to "%s"'''
                             % ':'.join(default_ignores)),
                      ))
-    if command_name == 'put':
+    if not from_server:
         parser.add_option('-e', '--expr',
                           help='''\
 Evaluate EXPR after put, print a value or an exception''')
@@ -672,7 +660,6 @@ Evaluate EXPR after put, print a value or an exception''')
         sys.exit(1)
     app_owner_spot, sep_, remote_path = args[0].partition('/')
     app_name, owner_name, spot_name = _parse_app_owner_spot(app_owner_spot)
-    app_data = AppData(app_name, spot_name, owner_name)
     callbacks = (Callbacks() if opts.quiet else
                  Callbacks(save=_make_print_callback('S  '),
                            create=_make_print_callback('C  '),
@@ -684,35 +671,32 @@ Evaluate EXPR after put, print a value or an exception''')
                                 if wildcard]
                                if opts.ignore is not None else
                                default_ignores))
-    path = (args[1] if len(args) > 1 else
-            os.path.basename(remote_path.rstrip('/')) or
-            spot_name or
-            app_name)
-    app_data_method(app_data, remote_path, path,
-                    options, callbacks)
+    transfer(app_name, owner_name, spot_name,
+             remote_path, args[1] if len(args) > 1 else None,
+             from_server, options, callbacks)
     if getattr(opts, 'expr', None):
-        print app_data.evaluate(opts.expr)[1]
+        print evaluate(app_name, spot_name, opts.expr)[1]
             
 
 def get_command(args):
-    _get_put_command(args,
-                     'get',
-                     '''\
-Get files from release or spot application data on http://akshell.com.''',
-                     AppData.get)
+    _transfer_command(args,
+                      'get',
+                      '''\
+Get release or spot application code from the server.''',
+                      True)
 
 
 def put_command(args):
-    _get_put_command(args,
-                     'put',
-                     '''\
-Put files to release or spot application data on http://akshell.com.''',
-                     AppData.put)
+    _transfer_command(args,
+                      'put',
+                      '''\
+Put release or spot application code to the server.''',
+                      False)
 
 
 def eval_command(args):
     parser = _CommandOptionParser(
-        usage='Usage: akshell eval APP[:[OWNER@]SPOT] EXPR',
+        usage='Usage: akshell eval APP[:SPOT] EXPR',
         description='''\
 Evaluate EXPR in release or spot version of application.
 Print a value or an exception occured.
@@ -721,8 +705,11 @@ Print a value or an exception occured.
     if len(args) != 2:
         sys.stderr.write('"eval" command requires 2 arguments\n')
         sys.exit(1)
-    app_name, owner_name, spot_name = _parse_app_owner_spot(args[0])
-    print AppData(app_name, spot_name, owner_name).evaluate(args[1])[1]
+    try:
+        app_name, spot_name = args[0].split(':', 1)
+    except ValueError:
+        app_name, spot_name = args[0], None
+    print evaluate(app_name, spot_name, args[1])[1]
     
 
 _command_handlers = {'login': login_command,

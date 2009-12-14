@@ -194,7 +194,7 @@ class WorkTestCase(_ToolTestCase):
         callbacks = akshell.Callbacks(save=lambda path: files.add(path),
                                       create=lambda path: dirs.add(path))
         akshell.logout()
-        akshell.AppData(APP).get('', '.', callbacks=callbacks)
+        akshell.transfer(APP, path='.', callbacks=callbacks)
         self.assertEqual(files, set([os.path.join('.', '__main__.js'),
                                      os.path.join('.', 'dir', 'hello.txt')]))
         self.assertEqual(dirs, set([os.path.join('.', 'dir'),
@@ -245,27 +245,13 @@ class WorkTestCase(_ToolTestCase):
         self.assert_(os.path.isdir(SPOT))
 
     def testExceptions(self):
-        spot_data = akshell.AppData(APP, spot_name=SPOT)
-        akshell.logout()
-        self.assertRaises(akshell.RequestError,
-                          lambda: spot_data.get('', '.'))
-        self.assertRaises(akshell.RequestError,
-                          lambda: spot_data.put('', '.'))
-        self.assertRaises(akshell.LoginRequiredError,
-                          akshell.AppData,
-                          APP, spot_name=SPOT)
         self.assertRaises(AssertionError,
-                          akshell.AppData,
-                          APP, owner_name='illegal')
-        self.assertRaises(AssertionError,
-                          akshell.AppData,
+                          akshell.transfer,
                           APP, owner_name=USER)
-        self.assertRaises(
-            akshell.RequestError,
-            lambda: akshell.AppData(APP).get('no_such_entry', '.'))
-        _write('file', '')
-        self.assertRaises(akshell.RequestError,
-                          lambda: akshell.AppData(APP).put('', '.'))
+        akshell.logout()
+        self.assertRaises(akshell.LoginRequiredError,
+                          akshell.transfer,
+                          APP, spot_name=SPOT)
 
     def testPut(self):
         self._launch(['get', APP, '.'])
