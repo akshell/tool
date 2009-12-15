@@ -706,8 +706,7 @@ def eval_command(args):
         usage='Usage: akshell eval APP[:SPOT] EXPR',
         description='''\
 Evaluate EXPR in release or spot version of application.
-Print a value or an exception occured.
-''')
+Print a value or an exception occured.''')
     opts_, args = parser.parse_args(args)
     if len(args) != 2:
         sys.stderr.write('"eval" command requires 2 arguments\n')
