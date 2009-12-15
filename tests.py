@@ -307,13 +307,23 @@ def _process_coverage():
 
         
 def main():
-    collecting_coverage = False
-    if '--cov' in sys.argv:
-        sys.argv.remove('--cov')
+    try:
+        cov_idx = sys.argv.index('--cov')
+    except ValueError:
+        collecting_coverage = False
+    else:
+        del sys.argv[cov_idx]
         coverage.start()
         collecting_coverage = True
     global akshell
     akshell = __import__('akshell')
+    try:
+        server_idx = sys.argv.index('--server')
+    except ValueError:
+        pass
+    else:
+        akshell.SERVER = sys.argv[server_idx + 1]
+        del sys.argv[server_idx : server_idx + 2]
     try:
         unittest.main(defaultTest='suite')
     finally:

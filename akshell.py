@@ -540,9 +540,10 @@ class _CommandOptionParser(OptionParser):
         help_option = self.option_list[-1]
         assert help_option.get_opt_string() == '--help'
         help_option.help = SUPPRESS_HELP
+        self.add_option('--server', default=SERVER, help=SUPPRESS_HELP)
         
     def format_option_help(self, formatter=None):
-        return ('' if len(self.option_list) == 1 else
+        return ('' if len(self.option_list) == 2 else
                 OptionParser.format_option_help(self, formatter))
 
     def format_description(self, formatter):
@@ -556,6 +557,12 @@ class _CommandOptionParser(OptionParser):
                         self.format_description(formatter),
                         self.format_option_help(formatter),
                         ])
+
+    def parse_args(self, args):
+        global SERVER
+        opts, args = OptionParser.parse_args(self, args)
+        SERVER = opts.server
+        return opts, args
 
     
 def help_command(args):
