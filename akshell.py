@@ -67,7 +67,7 @@ __all__ = [
 
 __version__ = '0.1'
 
-SERVER = 'www.akshell.loc:8000'
+SERVER = 'www.akshell.com'
 
 CONFIG_DIR = os.path.join(os.path.expanduser('~'), '.akshell')
 

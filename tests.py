@@ -193,7 +193,6 @@ class WorkTestCase(_ToolTestCase):
         dirs = set()
         callbacks = akshell.Callbacks(save=lambda path: files.add(path),
                                       create=lambda path: dirs.add(path))
-        akshell.logout()
         akshell.transfer(APP, path='.', callbacks=callbacks)
         self.assertEqual(files, set([os.path.join('.', '__main__.js'),
                                      os.path.join('.', 'dir', 'hello.txt')]))
@@ -228,7 +227,7 @@ class WorkTestCase(_ToolTestCase):
         shutil.rmtree(APP)
         self.assertEqual(
             set(string.split()[1] for string in
-                (self._launch(['get', APP + '///dir//../dir'])
+                (self._launch(['get', APP + '///dir/../dir'])
                  .split('\n'))
                 if string),
             set(['dir',
