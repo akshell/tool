@@ -210,10 +210,10 @@ class WorkTestCase(_ToolTestCase):
         self.assert_(not os.path.exists('some_dir'))
         self.assert_(not os.path.exists('some_file'))
         os.remove('__main__.js')
-        # TODO: uncomment when public version will be launched
-#         akshell.logout()
         self._launch(['get', APP + '/__main__.js'])
         self.assert_(os.path.isfile('__main__.js'))
+        akshell.logout()
+        self._launch(['get', '%s:%s@%s' % (APP, USER, SPOT)], code=1)
 
     def testGetSpot(self):
         self._launch(['get', '%s:%s@%s/dir' % (APP, USER, SPOT)])

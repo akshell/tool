@@ -91,9 +91,14 @@ IGNORES = ('*~', '*.bak', '.*', '#*')
 
 class Error(Exception): pass
 
-class LoginRequiredError(Error): pass
 
 class DoesNotExistError(Error): pass
+
+
+class LoginRequiredError(Error):
+    def __init__(self):
+        Error.__init__(self, 'Login required')
+
 
 class RequestError(Error):
     def __init__(self, message, code):
@@ -247,7 +252,7 @@ def _get_own_name():
         with open(NAME_PATH) as f:
             return f.read().strip()
     except IOError, error:
-        raise (LoginRequiredError('Login required')
+        raise (LoginRequiredError()
                if error.errno == errno.ENOENT else
                error)
 
@@ -312,6 +317,9 @@ class _RemoteCode(object):
         except RequestError, error:
             if error.code == httplib.MOVED_PERMANENTLY:
                 return _File()
+            # TODO: remove this 'if' when public version will be launched
+            if error.code == httplib.FOUND:
+                raise LoginRequiredError()
             if (error.code == httplib.NOT_FOUND and
                 str(error).startswith('Entry ')):
                 raise DoesNotExistError('Remote entry "%s" does not exist'
