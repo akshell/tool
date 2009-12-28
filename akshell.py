@@ -112,7 +112,7 @@ def _request(url, data=None, code=httplib.OK, cookie=None, headers=None):
         cookie = cookielib.MozillaCookieJar(COOKIE_PATH)
         try:
             cookie.load()
-        except IOError as error:
+        except IOError, error:
             if error.errno != errno.ENOENT: raise
             cookie = None
     opener = urllib2.OpenerDirector()
@@ -246,7 +246,7 @@ def _get_own_name():
     try:
         with open(NAME_PATH) as f:
             return f.read().strip()
-    except IOError as error:
+    except IOError, error:
         raise (LoginRequiredError('Login required')
                if error.errno == errno.ENOENT else
                error)
@@ -362,7 +362,7 @@ def login(name, password):
              cookie)
     try:
         os.mkdir(CONFIG_DIR)
-    except OSError as error:
+    except OSError, error:
         if error.errno != errno.EEXIST: raise
     cookie.save()
     with open(NAME_PATH, 'w') as f:
@@ -373,7 +373,7 @@ def logout():
     '''Logout by removing config directory'''
     try:
         shutil.rmtree(CONFIG_DIR)
-    except OSError as error:
+    except OSError, error:
         if error.errno != errno.ENOENT: raise
 
         
@@ -472,7 +472,7 @@ def help_command(args):
                 print
             try:
                 command_handler(['--help',])
-            except SystemExit as error:
+            except SystemExit, error:
                 assert not error.code
             is_first = False
     
@@ -646,11 +646,11 @@ Type 'akshell help' for usage.
     try:
         command_handler(args[1:])
         return
-    except Error as error:
+    except Error, error:
         sys.stderr.write(str(error) + '\n')
     except KeyboardInterrupt:
         sys.stderr.write('\nInterrupted!\n')
-    except urllib2.URLError as error:
+    except urllib2.URLError, error:
         sys.stderr.write(str(error.reason) + '\n')
     sys.exit(1)
 

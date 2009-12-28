@@ -82,7 +82,7 @@ class _ToolTestCase(unittest.TestCase):
         sys.stderr = cStringIO.StringIO()
         try:
             akshell.main(args)
-        except SystemExit as system_exit:
+        except SystemExit, system_exit:
             return_code = system_exit.code
         finally:
             result = (sys.stdout.getvalue() if stream == 'stdout' else
