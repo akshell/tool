@@ -26,17 +26,19 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+from __future__ import with_statement
 from fnmatch import fnmatch
 from getpass import getpass
 from optparse import OptionParser, Option, SUPPRESS_HELP
+from random import randrange
 import cookielib
 import errno
 import hashlib
 import httplib
 import os
 import os.path
+import re
 import shutil
-import stat
 import sys
 import urllib
 import urllib2
@@ -50,19 +52,21 @@ __all__ = [
     'CONFIG_DIR',
     'COOKIE_PATH',
     'NAME_PATH',
+    'FROM_SERVER',
+    'TO_SERVER',
+    'IGNORES',
     
     'Error',
     'LoginRequiredError',
-    'MismatchError',
+    'DoesNotExistError',
     'RequestError',
     
     'login',
     'logout'
-    
-    'Options',
-    'Callbacks',
-    'transfer',
     'evaluate',
+    'transfer',
+    'get',
+    'put'
     ]
 
 __version__ = '0.1'
@@ -75,39 +79,35 @@ COOKIE_PATH = os.path.join(CONFIG_DIR, 'cookie')
 
 NAME_PATH = os.path.join(CONFIG_DIR, 'name')
 
+FROM_SERVER = True
+
+TO_SERVER = False
+
+IGNORES = ('*~', '*.bak', '.*', '#*')
+
 ################################################################################
 # Errors
 ################################################################################
 
 class Error(Exception): pass
 
-class RequestError(Error): pass
-
-class MismatchError(Error): pass
-
 class LoginRequiredError(Error): pass
 
+class DoesNotExistError(Error): pass
+
+class RequestError(Error):
+    def __init__(self, message, code):
+        Error.__init__(self, message)
+        self.code = code
+
 ################################################################################
-# _make_request()
+# Internals
 ################################################################################
 
-class _Request(urllib2.Request):
-    def __init__(self, url, data=None, method=None, *args, **kwds):
-        urllib2.Request.__init__(self, url, data, *args, **kwds)
-        self._method = method
-
-    def get_method(self):
-        return (urllib2.Request.get_method(self)
-                if self._method is None else
-                self._method)
-
-    
-def _make_request(url, data=None, method=None, code=None,
-                  cookie=None, etag=None):
-    headers = {'Accept': 'text/plain'}
+def _request(url, data=None, code=httplib.OK, cookie=None, headers=None):
+    headers = dict(headers) if headers else {}
+    headers['Accept'] = 'text/plain'
     headers['User-Agent'] = 'akshell ' + __version__
-    if etag:
-        headers['If-None-Match'] = etag
     if cookie is None:
         cookie = cookielib.MozillaCookieJar(COOKIE_PATH)
         try:
@@ -120,14 +120,231 @@ def _make_request(url, data=None, method=None, code=None,
     opener.add_handler(urllib2.HTTPHandler())
     if cookie is not None:
         opener.add_handler(urllib2.HTTPCookieProcessor(cookie))
-    request = _Request(url, data, method, headers)
+    request = urllib2.Request(url, data, headers=headers)
     response = opener.open(request)
-    if code is not None and response.code != code:
-        raise RequestError(response.read())
+    if response.code != code:
+        raise RequestError(response.read(), response.code)
     return response
+
+
+class _Diff(object):
+    def __init__(self):
+        self.delete = []
+        self.create = []
+        self.save   = []
+
+
+class _Entry(object):
+    def diff(self, dst, clean):
+        diff = _Diff()
+        if dst:
+            self._do_diff(dst, clean, diff, [])
+        else:
+            self._create(diff, [])
+        return diff
+
+
+class _Dir(_Entry):
+    def __init__(self, children=None):
+        self._children = children or {}
+
+    def add(self, name, entry):
+        self._children[name] = entry
+
+    def _create(self, diff, route):
+        diff.create.append(route)
+        for name, entry in self._children.items():
+            entry._create(diff, route + [name])
+    
+    def _do_diff(self, dst, clean, diff, route):
+        if isinstance(dst, _Dir):
+            for name, src_entry in self._children.items():
+                child_route = route + [name]
+                try:
+                    dst_entry = dst._children[name]
+                except KeyError:
+                    src_entry._create(diff, child_route)
+                else:
+                    src_entry._do_diff(dst_entry, clean, diff, child_route)
+            if clean:
+                for name in dst._children:
+                    if name not in self._children:
+                        diff.delete.append(route + [name])
+        else:
+            if isinstance(dst, _File):
+                diff.delete.append(route)
+            self._create(diff, route)
+
+
+class _File(_Entry):
+    def __init__(self, etag=None):
+        self._etag = etag
+
+    def _create(self, diff, route):
+        diff.save.append(route)
+
+    def _do_diff(self, dst, clean, diff, route):
+        if isinstance(dst, _File):
+            if self._etag == dst._etag:
+                return
+        elif isinstance(dst, _Dir):
+            diff.delete.append(route)
+        diff.save.append(route)
+
+
+class _LocalCode(object):
+    def __init__(self, path, ignores):
+        self._path = path
+        self._ignores = ignores
+
+    def _do_traverse(self):
+        if os.path.isdir(self._path):
+            return _Dir(
+                dict((name,
+                      _LocalCode(os.path.join(self._path, name),
+                                 self._ignores)._do_traverse())
+                     for name in os.listdir(self._path)
+                     if all(not fnmatch(name, ignore)
+                            for ignore in self._ignores)))
+        else:
+            with open(self._path) as f:
+                return _File(hashlib.md5(f.read()).hexdigest())
+        
+    def traverse(self):
+        if not os.path.exists(self._path):
+            raise DoesNotExistError('Local entry "%s" does not exist'
+                                    % self._path)
+        return self._do_traverse()
+
+    def _get_path(self, route):
+        return os.path.join(self._path, *route)
+    
+    def read_files(self, routes):
+        contents = []
+        for route in routes:
+            with open(self._get_path(route)) as f:
+                contents.append(f.read())
+        return contents
+
+    def deploy(self, diff, contents):
+        for route in diff.delete:
+            path = self._get_path(route)
+            try:
+                os.remove(path)
+            except OSError, error:
+                if error.errno != errno.EISDIR: raise
+                shutil.rmtree(path)
+        for route in diff.create:
+            os.mkdir(self._get_path(route))
+        assert len(diff.save) == len(contents)
+        for route, content in zip(diff.save, contents):
+            with open(self._get_path(route), 'w') as f:
+                f.write(content)
+    
+    
+def _get_own_name():
+    try:
+        with open(NAME_PATH) as f:
+            return f.read().strip()
+    except IOError as error:
+        raise (LoginRequiredError('Login required')
+               if error.errno == errno.ENOENT else
+               error)
+
+
+def _encode_multipart(fields, files):
+    boundary = hex(randrange(2 ** 64))[2:]
+    parts = []
+    for name, value in fields:
+        parts.append(
+            '--%s\r\nContent-Disposition: form-data; name=%s\r\n'
+            % (boundary, name))
+        parts.append(value)
+    for name, path, value in files:
+        parts.append(
+            '--%s\r\nContent-Disposition: form-data; name=%s; filename=%s\r\n'
+            % (boundary, name, path))
+        parts.append(value)
+    parts.append('--%s--\n' % boundary)
+    return 'multipart/form-data; boundary=' + boundary, '\r\n'.join(parts)
+
+
+class _RemoteCode(object):
+    def __init__(self, app_name, owner_name=None, spot_name=None, path=''):
+        assert not owner_name or spot_name
+        if spot_name and not owner_name:
+            owner_name = _get_own_name()
+        self._url = (
+            'http://%s/apps/%s/' % (SERVER, app_name) +
+            ('devs/%s/spots/%s' % (owner_name.lower().replace(' ', '-'),
+                                   spot_name)
+             if spot_name else
+             'code'))
+        self._path = re.sub('//+', '/', path.strip('/'))
+        if self._path:
+            self._url += '/' + urllib.quote(self._path)
+
+    def _traverse_dir(self):
+        data = _request(self._url + '/?etag&recursive').read()
+        lines = data.split('\r\n') if data else []
+        root = _Dir()
+        dirs = [('', root)]
+        for line in lines:
+            while not line.startswith(dirs[-1][0]):
+                dirs.pop()
+            parent_path, parent_dir = dirs[-1]
+            if line.endswith('/'):
+                name = line[len(parent_path):-1]
+                assert '/' not in name
+                dir = _Dir()
+                parent_dir.add(name, dir)
+                dirs.append((line, dir))
+            else:
+                idx = line.rfind(' ')
+                name = line[len(parent_path):idx]
+                assert '/' not in name
+                parent_dir.add(name, _File(line[idx + 1:]))
+        return root
+
+    def traverse(self):
+        try:
+            return self._traverse_dir()
+        except RequestError, error:
+            if error.code == httplib.MOVED_PERMANENTLY:
+                return _File()
+            if (error.code == httplib.NOT_FOUND and
+                str(error).startswith('Entry ')):
+                raise DoesNotExistError('Remote entry "%s" does not exist'
+                                        % self._path)
+            raise
+
+    def read_files(self, routes):
+        if not routes:
+            return []
+        if routes == [[]]:
+            return [_request(self._url).read()]
+        response = _request(
+            self._url + '/?files=' +
+            urllib.quote('\n'.join('/'.join(route) for route in routes)))
+        boundary = response.headers['Content-Type'].rpartition('=')[2]
+        return [part[part.find('\r\n\r\n') + 4:-4]
+                for part in response.read().split(boundary)[1:-1]]
+
+    def deploy(self, diff, contents):
+        fields = ([('op', 'deploy')] +
+                  [(name, '\n'.join('/'.join(route) for route in routes))
+                   for name, routes in (('delete', diff.delete),
+                                        ('create', diff.create))
+                   if routes])
+        assert len(diff.save) == len(contents)
+        files = [('save', '/'.join(route), content)
+                 for route, content in zip(diff.save, contents)]
+        content_type, body = _encode_multipart(fields, files)
+        _request(self._url + '/', body, httplib.FOUND,
+                 headers={'Content-Type': content_type})
     
 ################################################################################
-# login() & logout()
+# API
 ################################################################################
 
 def login(name, password):
@@ -137,24 +354,19 @@ def login(name, password):
 
     '''
     cookie = cookielib.MozillaCookieJar(COOKIE_PATH)    
-    response = _make_request('http://%s/login/' % SERVER,
-                             urllib.urlencode({'name': name,
-                                               'password': password,
-                                               }),
-                             method='POST',
-                             cookie=cookie)
-    if response.code != httplib.FOUND:
-        raise RequestError(response.read())
+    _request('http://%s/login/' % SERVER,
+             urllib.urlencode({'name': name,
+                               'password': password,
+                               }),
+             httplib.FOUND,
+             cookie)
     try:
         os.mkdir(CONFIG_DIR)
     except OSError as error:
         if error.errno != errno.EEXIST: raise
     cookie.save()
-    f = open(NAME_PATH, 'w')
-    try:
-        f.write(name + '\n')
-    finally:
-        f.close()
+    with open(NAME_PATH, 'w') as f:
+        f.write(name)
 
 
 def logout():
@@ -164,357 +376,37 @@ def logout():
     except OSError as error:
         if error.errno != errno.ENOENT: raise
 
-################################################################################
-# Entries
-################################################################################
-
-class _Entry(object):
-    def __init__(self, place):
-        self.place = place
-        
-
-class _SourceEntry(_Entry):
-    pass
-
-
-class _SourceFile(_SourceEntry):
-    is_dir = False
-    
-    def __init__(self, place, data):
-        _SourceEntry.__init__(self, place)
-        self.data = data
-        
-
-class _SourceDir(_SourceEntry):
-    is_dir = True
-    
-    def __init__(self, place, names):
-        _SourceEntry.__init__(self, place)
-        self.names = names
-
-        
-class _DestEntry(_Entry):
-    def take(self, source, options): raise NotImplemented()
-
-    def _force(self, source, options):
-        self.place.delete()
-        _EmptyDest(self.place).take(source, options)
-        
-    
-class _DestFile(_DestEntry):
-    def take(self, source, options):
-        if source.is_dir:
-            if options.force:
-                self._force(source, options)
-            else:
-                self.place.raise_error(MismatchError,
-                                       'expected directory, file found')
-        else:
-            self.place.put(source.data)
-            
-
-class _DestDir(_DestEntry):
-    def take(self, source, options):
-        if not source.is_dir:
-            if options.force:
-                self._force(source, options)
-            else:
-                self.place.raise_error(MismatchError,
-                                       'expected file, directory found')
-        else:
-            if options.clean:
-                names = self.place.get().names
-                for name in names:
-                    if (name not in source.names and
-                        not options.is_ignored(name)):
-                        self.place.get_child(name).delete()
-            for name in source.names:
-                if not options.is_ignored(name):
-                    _deploy(source.place.get_child(name),
-                            self.place.get_child(name),
-                            options)
-                
-
-class _EmptyDest(_DestEntry):
-    def take(self, source, options):
-        if source.is_dir:
-            self.place.create_as_dir()
-            for name in source.names:
-                if not options.is_ignored(name):
-                    dest = _EmptyDest(self.place.get_child(name))
-                    dest.take(source.place.get_child(name).get(), options)
-        else:
-            self.place.put(source.data)
-                
-
-def _deploy(from_place, to_place, options):
-    source = from_place.get(etag=to_place.get_etag())
-    if source is None:
-        return
-    dest = to_place.head(etag=from_place.get_etag())
-    if dest is None:
-        return
-    dest.take(source, options)
-
-################################################################################
-# Places
-################################################################################
-
-class _Place(object):
-    @staticmethod
-    def _with_callback(name):
-        def decorator(func):
-            def decorated_func(self, *args, **kwds):
-                result = func(self, *args, **kwds)
-                getattr(self._callbacks, name)(self._path)
-                return result
-            return decorated_func
-        return decorator
-
-    def __init__(self, path, callbacks):
-        self._path = path
-        self._callbacks = callbacks
-
-    def raise_error(self, cls, msg):
-        raise cls('%s: %s' % (self._path, msg))
-
-    def get_etag(self): raise NotImplemented()
-    
-    def get(self, etag=None): raise NotImplemented()
-
-    def head(self, etag=None): raise NotImplemented()
-
-    def put(self, data): raise NotImplemented()
-
-    def delete(self): raise NotImplemented()
-
-    def create_as_dir(self): raise NotImplemented()
-
-    def get_child(self, name): raise NotImplemented()
-
-
-class _RemotePlace(_Place):
-    def __init__(self, base_url, path, callbacks):
-        _Place.__init__(self, path, callbacks)
-        self._base_url = base_url
-        self._etag = None
-
-    def _get_url(self):
-        return '%s/%s' % (self._base_url, self._path)
-
-    def _path_is_dir(self):
-        return not self._path or self._path.endswith('/')
-
-    def get_etag(self):
-        return self._etag
-
-    def _retrieve(self, method, etag):
-        response = _make_request(self._get_url(),
-                                 method=method,
-                                 etag=etag)
-        if response.code == httplib.MOVED_PERMANENTLY:
-            self._path = response.headers['Location'][len(self._base_url) + 1:]
-        return response
-    
-    def get(self, etag=None):
-        response = self._retrieve('GET', etag)
-        if response.code == httplib.MOVED_PERMANENTLY:
-            return self.get(etag)
-        if response.code == httplib.NOT_MODIFIED:
-            return None
-        data = response.read()
-        if response.code != httplib.OK:
-            raise RequestError(data)
-        if self._path_is_dir():
-            return _SourceDir(self, [name for name in data.split('\n') if name])
-        else:
-            self._etag = response.headers['ETag']
-            return _SourceFile(self, data)
-        
-    def head(self, etag=None):
-        response = self._retrieve('HEAD', etag)
-        if response.code == httplib.NOT_MODIFIED:
-            return None
-        if response.code == httplib.NOT_FOUND:
-            return _EmptyDest(self)
-        if response.code not in (httplib.OK, httplib.MOVED_PERMANENTLY):
-            raise RequestError(self._retrieve('GET', etag).read())
-        return (_DestDir(self) if self._path_is_dir() else
-                _DestFile(self))
-
-    @_Place._with_callback('save')
-    def put(self, data):
-        _make_request(self._get_url(), data, method='PUT', code=httplib.OK)
-
-    @_Place._with_callback('delete')
-    def delete(self):
-        _make_request(self._get_url(), method='DELETE', code=httplib.OK)
-
-    @_Place._with_callback('create')
-    def create_as_dir(self):
-        parent_path, separator_, name = self._path.rstrip('/').rpartition('/')
-        assert name
-        parent_url = '%s/%s' % (self._base_url, parent_path)
-        data = urllib.urlencode({'op': 'create_dir', 'name': name})
-        _make_request(parent_url, data, method='POST', code=httplib.FOUND)
-
-    def get_child(self, name):
-        quoted_name = urllib.quote(name)
-        return _RemotePlace(self._base_url,
-                            (self._path +
-                             ('' if self._path_is_dir() else '/') +
-                             quoted_name),
-                            self._callbacks)
-        
-            
-class _LocalPlace(_Place):
-    def __init__(self, path, callbacks):
-        _Place.__init__(self, path, callbacks)
-        self._data = None
-        self._etag = None
-        
-    def _read(self):
-        f = open(self._path, 'rb')
-        try:
-            return f.read()
-        finally:
-            f.close()
-            
-    def get_etag(self):
-        if self._data is None:
-            try:
-                self._data = self._read()
-            except IOError as error:
-                if error.errno not in (errno.EISDIR, errno.ENOENT): raise
-                return None
-        if self._etag is None:
-            self._etag = hashlib.md5(self._data).hexdigest()
-        return self._etag
-    
-    def get(self, etag=None):
-        assert etag is None
-        if self._data is None:
-            try:
-                self._data = self._read()
-            except IOError as error:
-                if error.errno != errno.EISDIR: raise
-                return _SourceDir(self, os.listdir(self._path))
-        return _SourceFile(self, self._data)
-
-    def head(self, etag=None):
-        # If we are here etags are not equal
-        try:
-            mode = os.stat(self._path).st_mode
-        except OSError as error:
-            if error.errno != errno.ENOENT: raise
-            return _EmptyDest(self)
-        if stat.S_ISDIR(mode):
-            return _DestDir(self)
-        return _DestFile(self)
-
-    @_Place._with_callback('save')
-    def put(self, data):
-        f = open(self._path, 'wb')
-        try:
-            f.write(data)
-        finally:
-            f.close()
-
-    @_Place._with_callback('delete')
-    def delete(self):
-        try:
-            os.remove(self._path)
-        except OSError as error:
-            if error.errno != errno.EISDIR: raise
-            shutil.rmtree(self._path)
-
-    @_Place._with_callback('create')
-    def create_as_dir(self):
-        os.mkdir(self._path)
-
-    def get_child(self, name):
-        return _LocalPlace(os.path.join(self._path, name), self._callbacks)
-    
-################################################################################
-# Options, Callbacks, EvalResult, AppData
-################################################################################
-    
-class Options(object):
-    '''Options of get and put AppData methods'''
-    def __init__(self, force=False, clean=False, ignores=None):
-        self.force = force
-        self.clean = clean
-        self._ignores = ignores or []
-
-    def is_ignored(self, name):
-        for wildcard in self._ignores:
-            if fnmatch(name, wildcard):
-                return True
-        return False
-
-
-class Callbacks(object):
-    '''Callbacks of get and put AppData methods.
-
-    Callback events:
-      - save: file was saved
-      - create: directory was created
-      - delete: file or directory was deleted
-
-    '''
-    def __init__(self,
-                 save=lambda path: None,
-                 create=lambda path: None,
-                 delete=lambda path: None):
-        self.save = save
-        self.create = create
-        self.delete = delete
-        
-        
-def _get_dev_name():
-    try:
-        f = open(NAME_PATH)
-    except IOError as error:
-        if error.errno != errno.ENOENT: raise
-        raise LoginRequiredError('Login required')
-    try:
-        return f.read().strip()
-    finally:
-        f.close()
-
-        
-def transfer(app_name, owner_name=None, spot_name=None,
-             remote_path='', path=None,
-             from_server=True, options=Options(), callbacks=Callbacks()):
-    assert owner_name is None or spot_name is not None
-    if owner_name is None and spot_name is not None:
-        owner_name = _get_dev_name()
-    if path is None:
-        path = (os.path.basename(remote_path.rstrip('/')) or
-                spot_name or
-                app_name)
-    base_url = ('http://%s/apps/%s/' % (SERVER, app_name) +
-                ('devs/%s/spots/%s' % (owner_name.lower().replace(' ', '-'),
-                                       spot_name)
-                 if spot_name else
-                 'code'))
-    remote_place = _RemotePlace(base_url, urllib.quote(remote_path), callbacks)
-    local_place = _LocalPlace(path, callbacks)
-    if from_server:
-        _deploy(remote_place, local_place, options)
-    else:
-        _deploy(local_place, remote_place, options)
-
         
 def evaluate(app_name, spot_name, expr):
     '''Evaluate expression in release or spot context'''
-    response = _make_request('http://%s/apps/%s/eval/' % (SERVER, app_name),
-                             urllib.urlencode({'spot': spot_name or '',
-                                               'expr': expr,
-                                               }),
-                             code=httplib.OK)
+    response = _request('http://%s/apps/%s/eval/' % (SERVER, app_name),
+                        urllib.urlencode({'spot': spot_name or '',
+                                          'expr': expr,
+                                          }))
     status, data = response.read().split('\n', 1)
     return (status == 'OK'), data
+
+
+def transfer(direction, app_name, owner_name=None, spot_name=None,
+             remote_path='', local_path='.',
+             ignores=IGNORES, clean=False):
+    local_code = _LocalCode(local_path, ignores)
+    remote_code = _RemoteCode(app_name, owner_name, spot_name, remote_path)
+    src_code, dst_code = ((remote_code, local_code)
+                          if direction == FROM_SERVER else
+                          (local_code, remote_code))
+    src_entry = src_code.traverse()
+    try:
+        dst_entry = dst_code.traverse()
+    except DoesNotExistError:
+        dst_entry = None
+    diff = src_entry.diff(dst_entry, clean)
+    dst_code.deploy(diff, src_code.read_files(diff.save))
+    return diff.delete, diff.create, diff.save
+    
+
+get = lambda *args, **kwds: transfer(FROM_SERVER, *args, **kwds)
+put = lambda *args, **kwds: transfer(TO_SERVER, *args, **kwds)
 
 ################################################################################
 # Commands
@@ -574,7 +466,7 @@ def help_command(args):
         try:
             command_handler = _command_handlers[command]
         except KeyError:
-            sys.stderr.write('"%s": unknown command' % command)
+            sys.stderr.write('"%s": unknown command\n' % command)
         else:
             if not is_first:
                 print
@@ -607,12 +499,6 @@ def logout_command(args):
     logout()
     
 
-def _make_print_callback(prefix):
-    def callback(path):
-        print prefix, path
-    return callback
-
-
 def _parse_app_owner_spot(string):
     try:
         app, owner_spot = string.split(':', 1)
@@ -625,38 +511,41 @@ def _parse_app_owner_spot(string):
     return app, owner, spot
 
 
-def _transfer_command(args, command_name, descr_title, from_server):
-    default_ignores = ('*~', '*.bak', '.*', '#*')
+def _confirm(question):
+    return raw_input(question + ' [y/n]? ') in ('y', 'yes')
+
+
+_FORCE_OPTION = Option(
+    '-f', '--force',
+    default=False, action='store_true',
+    help='Don\'t ask for confirmation of release code actions')
+
+
+def _transfer_command(direction, args, command_name, descr_title):
     parser = _CommandOptionParser(
         usage=('Usage: akshell %s [options] '
                'APP[:[OWNER@]SPOT][/REMOTE_PATH] [LOCAL_PATH]'
                % command_name),
         description=descr_title + '''
-Unless "quiet" option is set print saved files (S mark), created
-directories (C mark) and deleted entries if "force" or "clean" is set
-(D mark).
-If LOCAL_PATH is omited the first avaliable of REMOTE_PATH base name,
-SPOT and APP is used.
+Unless "quiet" option is set print deleted entries (D mark),
+created directories (C mark) and saved files (S mark).
+LOCAL_PATH defaults to REMOTE_PATH base name if avaliable or
+current directory otherwise.
 ''',
-        option_list=(Option('-f', '--force',
+        option_list=(Option('-c', '--clean',
                             default=False, action='store_true',
                             help='''\
-Remove destination entries on file-directory and directory-file mismatch;
-use with caution!'''),
-                     Option('-c', '--clean',
-                            default=False, action='store_true',
-                            help='''\
-Remove destination entries which don't have corresponding sources;
-use with caution!'''),
+Remove destination entries which don't have corresponding sources'''),
                      Option('-q', '--quiet',
                             default=False, action='store_true',
                             help='Print nothing'),
                      Option('-i', '--ignore',
                             help='''\
 colon separated list of ignored filename wildcards, defaults to "%s"'''
-                            % ':'.join(default_ignores)),
+                            % ':'.join(IGNORES)),
                      ))
-    if not from_server:
+    if direction == TO_SERVER:
+        parser.add_option(_FORCE_OPTION)
         parser.add_option('-e', '--expr',
                           help='''\
 Evaluate EXPR after put, print a value or an exception''')
@@ -667,38 +556,40 @@ Evaluate EXPR after put, print a value or an exception''')
         sys.exit(1)
     app_owner_spot, sep_, remote_path = args[0].partition('/')
     app_name, owner_name, spot_name = _parse_app_owner_spot(app_owner_spot)
-    callbacks = (Callbacks() if opts.quiet else
-                 Callbacks(save=_make_print_callback('S  '),
-                           create=_make_print_callback('C  '),
-                           delete=_make_print_callback('D  '),
-                           ))
-    options = Options(force=opts.force, clean=opts.clean,
-                      ignores=([wildcard
-                                for wildcard in opts.ignore.split(':')
-                                if wildcard]
-                               if opts.ignore is not None else
-                               default_ignores))
-    transfer(app_name, owner_name, spot_name,
-             remote_path, args[1] if len(args) > 1 else None,
-             from_server, options, callbacks)
+    remote_path = remote_path.strip('/')
+    local_path = args[1] if len(args) > 1 else remote_path.rpartition('/')[2]
+    ignores = (IGNORES if opts.ignore is None else
+               [ignore for ignore in opts.ignore.split(':') if ignore])
+    if (direction == TO_SERVER and
+        not (spot_name or opts.force or _confirm('Put release code'))):
+        return
+    delete, create, save = transfer(
+        direction, app_name, owner_name, spot_name,
+        remote_path, local_path or '.',
+        ignores, opts.clean)
+    if not opts.quiet:
+        for prefix, routes in (('D', delete), ('C', create), ('S', save)):
+            for route in routes:
+                print prefix, (os.path.join(local_path, *route)
+                               if direction == FROM_SERVER else
+                               '/'.join(([remote_path] if remote_path else []) +
+                                        route))
     if getattr(opts, 'expr', None):
         print evaluate(app_name, spot_name, opts.expr)[1]
             
 
 def get_command(args):
-    _transfer_command(args,
+    _transfer_command(FROM_SERVER,
+                      args,
                       'get',
-                      '''\
-Get release or spot application code from the server.''',
-                      True)
+                      'Get release or spot code from the server.')
 
 
 def put_command(args):
-    _transfer_command(args,
+    _transfer_command(TO_SERVER,
+                      args,
                       'put',
-                      '''\
-Put release or spot application code to the server.''',
-                      False)
+                      'Put release or spot code to the server.')
 
 
 def eval_command(args):
@@ -706,8 +597,10 @@ def eval_command(args):
         usage='Usage: akshell eval APP[:SPOT] EXPR',
         description='''\
 Evaluate EXPR in release or spot version of application.
-Print a value or an exception occured.''')
-    opts_, args = parser.parse_args(args)
+Print a value or an exception occured.
+''',
+        option_list=(_FORCE_OPTION,))
+    opts, args = parser.parse_args(args)
     if len(args) != 2:
         sys.stderr.write('"eval" command requires 2 arguments\n')
         sys.exit(1)
@@ -715,6 +608,8 @@ Print a value or an exception occured.''')
         app_name, spot_name = args[0].split(':', 1)
     except ValueError:
         app_name, spot_name = args[0], None
+        if not (opts.force or _confirm('Evaluate in release code')):
+            return
     print evaluate(app_name, spot_name, args[1])[1]
     
 
