@@ -237,7 +237,8 @@ class _LocalCode(object):
             try:
                 os.remove(path)
             except OSError, error:
-                if error.errno != errno.EISDIR: raise
+                # EISDIR on Unix, EACCES on Windows
+                if error.errno not in (errno.EISDIR, errno.EACCES): raise
                 shutil.rmtree(path)
         for route in diff.create:
             os.mkdir(self._get_path(route))
