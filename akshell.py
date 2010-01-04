@@ -37,6 +37,7 @@ import os
 import os.path
 import re
 import shutil
+import sys
 import urllib
 import urllib2
 
@@ -48,7 +49,9 @@ __version__ = '0.1'
 
 SERVER = 'www.akshell.com'
 
-CONFIG_DIR = os.path.join(os.path.expanduser('~'), '.akshell')
+CONFIG_DIR = (os.path.join(os.environ['APPDATA'], 'Akshell')
+              if sys.platform == 'win32' else
+              os.path.join(os.path.expanduser('~'), '.akshell'))
 
 COOKIE_PATH = os.path.join(CONFIG_DIR, 'cookie')
 
