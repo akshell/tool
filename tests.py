@@ -27,10 +27,10 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+from __future__ import with_statement
 from getpass import getpass
 import cStringIO
 import coverage
-import errno
 import os.path
 import shutil
 import sys
@@ -40,20 +40,20 @@ import urllib2
 
 import coverage_color
 
+script = akshell = None # To be set in main()
 
-try:
-    from test_vars import USER, PASSWORD, APP, SPOT
-except ImportError:
+
+def _create_config():
     print '''\
 For running akshell unit tests you need a test application.
 If you already have one type your credentials, application name and
 spot name in it below for config file generation.'''
-    USER = raw_input('User name: ')
-    PASSWORD = getpass('Password: ')
-    APP = raw_input('App name: ')
-    SPOT = raw_input('Spot name: ')
-    f = open(os.path.join(os.path.dirname(__file__), 'test_vars.py'), 'w')
-    try:
+    user = raw_input('User name: ')
+    password = getpass('Password: ')
+    app = raw_input('App name: ')
+    spot = raw_input('Spot name: ')
+    path = os.path.join(os.path.dirname(__file__), 'test_vars.py')
+    with open(path, 'w') as f:
         f.write('''\
 # Akshell test config file. Generated automatically.
 
@@ -61,10 +61,15 @@ USER = %s
 PASSWORD = %s
 APP = %s
 SPOT = %s
-''' % tuple(repr(var) for var in (USER, PASSWORD, APP, SPOT)))
-    finally:
-        f.close()
+''' % tuple(repr(var) for var in (user, password, app, spot)))
     print 'Config file "test_vars.py" was generated.'
+    return user, password, app, spot
+
+
+try:
+    from test_vars import USER, PASSWORD, APP, SPOT
+except ImportError:
+    USER, PASSWORD, APP, SPOT = _create_config()
 
 
 class _ToolTestCase(unittest.TestCase):
@@ -81,7 +86,7 @@ class _ToolTestCase(unittest.TestCase):
         sys.stdout = cStringIO.StringIO()
         sys.stderr = cStringIO.StringIO()
         try:
-            akshell.main(args)
+            script.main(args)
         except SystemExit, system_exit:
             return_code = system_exit.code
         finally:
@@ -100,9 +105,9 @@ class _ToolTestCase(unittest.TestCase):
     
 class CommandTestCase(_ToolTestCase):
     def testHelp(self):
-        help = self._launch([])
-        self.assertEqual(self._launch('help'), help)
-        self.assertEqual(self._launch('help'), help)
+        main_help = self._launch([])
+        self.assertEqual(self._launch('help'), main_help)
+        self.assertEqual(self._launch('help'), main_help)
         login_help = self._launch('help login')
         self.assertEqual(self._launch('login --help'), login_help)
         get_help = self._launch('help get')
@@ -126,7 +131,7 @@ class CommandTestCase(_ToolTestCase):
 
     def testLoginLogout(self):
         try:
-            akshell.getpass = lambda prompt: raw_input(prompt)
+            script.getpass = raw_input
             credentials = '%s\n%s\n' % (USER, PASSWORD)
             self._launch('login', input=credentials)
             self._launch('login', input=credentials)
@@ -136,14 +141,14 @@ class CommandTestCase(_ToolTestCase):
             self._launch('login', input='')
             def interrupt(*args):
                 raise KeyboardInterrupt
-            akshell.getpass = interrupt
+            script.getpass = interrupt
             self._launch('login', input=credentials, code=1)
             def raise_url_error(prompt_):
                 raise urllib2.URLError(None)
-            akshell.getpass = raise_url_error
+            script.getpass = raise_url_error
             self._launch('login', input=credentials, code=1)
         finally:
-            akshell.getpass = getpass
+            script.getpass = getpass
 
     def testGetPutEval(self):
         self._launch('get 1 2 3', code=1)
@@ -153,19 +158,13 @@ class CommandTestCase(_ToolTestCase):
 
         
 def _write(path, data):
-    f = open(path, 'w')
-    try:
+    with open(path, 'w') as f:
         f.write(data)
-    finally:
-        f.close()
 
 
 def _read(path):
-    f = open(path)
-    try:
+    with open(path) as f:
         return f.read()
-    finally:
-        f.close()
 
         
 class WorkTestCase(_ToolTestCase):
@@ -190,6 +189,7 @@ class WorkTestCase(_ToolTestCase):
     def testGet(self):
         self._launch(['get', 'no-such-app'], code=1)
         delete, create, save = akshell.get(APP)
+        self.assertEqual(delete, [])
         self.assertEqual(create, [['dir'], ['dir', 'subdir']])
         self.assertEqual(save, [['__main__.js'], ['dir', 'hello.txt']])
         self.assertEqual(_read(os.path.join('dir', 'hello.txt')), 'hello world')
@@ -275,19 +275,16 @@ class WorkTestCase(_ToolTestCase):
         
 
 def suite():
-    suite = unittest.TestSuite()
-    suite.addTest(unittest.makeSuite(CommandTestCase))
-    suite.addTest(unittest.makeSuite(WorkTestCase))
-    return suite
+    result = unittest.TestSuite()
+    result.addTest(unittest.makeSuite(CommandTestCase))
+    result.addTest(unittest.makeSuite(WorkTestCase))
+    return result
 
 
-def _process_coverage():
-    f, s, m, mf = coverage.analysis(akshell)
-    html_file = open('coverage.html', 'wb')
-    try:
-        coverage_color.colorize_file(f, outstream=html_file, not_covered=mf)
-    finally:
-        html_file.close()
+def _process_coverage(module):
+    path, statements_, missing_, missing_lines = coverage.analysis(module)
+    with open('coverage_%s.html' % module.__name__, 'w') as f:
+        coverage_color.colorize_file(path, f, missing_lines)
 
         
 def main():
@@ -299,8 +296,9 @@ def main():
         del sys.argv[cov_idx]
         coverage.start()
         collecting_coverage = True
-    global akshell
+    global akshell, script
     akshell = __import__('akshell')
+    script = __import__('script')
     try:
         server_idx = sys.argv.index('--server')
     except ValueError:
@@ -313,8 +311,9 @@ def main():
     finally:
         if collecting_coverage:
             coverage.stop()
-            _process_coverage()
-            coverage.report(akshell, show_missing=False)
+            _process_coverage(akshell)
+            _process_coverage(script)
+            coverage.report([akshell, script], show_missing=False)
             coverage.erase()
             
     

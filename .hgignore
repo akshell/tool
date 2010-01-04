@@ -1,6 +1,6 @@
 syntax: glob
 
 build
-coverage.html
+coverage_*.html
 .coverage
 test_vars.py
