@@ -27,6 +27,10 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 from distutils.core import setup
+try:
+    import py2exe
+except ImportError:
+    pass
 
 
 setup(name='akshell',
@@ -37,6 +41,13 @@ setup(name='akshell',
       description='akshell.com access utility',
       license='BSD',
       
-      py_modules=('akshell',),
-      scripts=('akshell',),
+      py_modules=['akshell'],
+      scripts=['akshell'],
+      
+      console=['script.py'],
+      options={
+          'py2exe': {
+              'excludes': ['_ssl', 'bz2', 'unicodedata', 'select'],
+              },
+          },
       )
