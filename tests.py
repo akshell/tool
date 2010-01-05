@@ -30,15 +30,12 @@
 from __future__ import with_statement
 from getpass import getpass
 import cStringIO
-import coverage
 import os.path
 import shutil
 import sys
 import tempfile
 import unittest
 import urllib2
-
-import coverage_color
 
 script = akshell = None # To be set in main()
 
@@ -281,21 +278,23 @@ def suite():
     return result
 
 
-def _process_coverage(module):
-    path, statements_, missing_, missing_lines = coverage.analysis(module)
-    with open('coverage_%s.html' % module.__name__, 'w') as f:
-        coverage_color.colorize_file(path, f, missing_lines)
-
-        
 def main():
     try:
         cov_idx = sys.argv.index('--cov')
     except ValueError:
-        collecting_coverage = False
+        coverage = None
     else:
         del sys.argv[cov_idx]
+        try:
+            import coverage
+        except ImportError:
+            sys.stderr.write('''\
+Please install "coverage" module to collect coverage. Try typing:
+sudo easy_install coverage
+''')
+            sys.exit(1)
+        import coverage_color
         coverage.start()
-        collecting_coverage = True
     global akshell, script
     akshell = __import__('akshell')
     script = __import__('script')
@@ -309,10 +308,12 @@ def main():
     try:
         unittest.main(defaultTest='suite')
     finally:
-        if collecting_coverage:
+        if coverage:
             coverage.stop()
-            _process_coverage(akshell)
-            _process_coverage(script)
+            for module in (akshell, script):
+                path, stmts_, missing_, missing_str = coverage.analysis(module)
+                with open('coverage_%s.html' % module.__name__, 'w') as f:
+                    coverage_color.colorize_file(path, f, missing_str)
             coverage.report([akshell, script], show_missing=False)
             coverage.erase()
             
