@@ -212,12 +212,10 @@ class _LocalCode(object):
     def deploy(self, diff, contents):
         for route in diff.delete:
             path = self._get_path(route)
-            try:
-                os.remove(path)
-            except OSError, error:
-                # EISDIR on Unix, EACCES on Windows
-                if error.errno not in (errno.EISDIR, errno.EACCES): raise
+            if os.path.isdir(path):
                 shutil.rmtree(path)
+            else:
+                os.remove(path)
         for route in diff.create:
             os.mkdir(self._get_path(route))
         assert len(diff.save) == len(contents)
