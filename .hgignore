@@ -6,3 +6,4 @@ coverage_*.html
 test_vars.py
 dist
 Output
+MANIFEST

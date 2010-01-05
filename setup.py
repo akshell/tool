@@ -33,21 +33,36 @@ except ImportError:
     pass
 
 
-setup(name='akshell',
-      version='0.1',
-      url='http://akshell.com',
-      author='Anton Korenyushkin',
-      author_email='anton@akshell.com',
-      description='akshell.com access utility',
-      license='BSD',
-      
-      py_modules=['akshell'],
-      scripts=['akshell'],
-      
-      console=['script.py'],
-      options={
-          'py2exe': {
-              'excludes': ['_ssl', 'bz2', 'unicodedata', 'select'],
-              },
-          },
-      )
+setup(
+    name='akshell',
+    
+    py_modules=['akshell'],
+    scripts=['akshell'],
+
+    console=['script.py'],
+    options={
+        'py2exe': {
+            'excludes': ['_ssl', 'bz2', 'unicodedata', 'select'],
+            },
+        },
+
+    version='0.1',
+    url='http://www.akshell.com',
+    author='Anton Korenyushkin',
+    author_email='anton@akshell.com',
+    license='BSD',
+    description='''
+An utility and a library for development access to http://www.akshell.com/''',
+
+    classifiers=[
+        'Programming Language :: Python',
+        'Development Status :: 4 - Beta',
+        'Environment :: Console',
+        'Intended Audience :: Developers',
+        'License :: OSI Approved :: BSD License',
+        'Operating System :: OS Independent',
+        'Topic :: Software Development',
+        'Topic :: Software Development :: Libraries :: Python Modules',
+        'Topic :: Utilities',
+        ],
+    )
