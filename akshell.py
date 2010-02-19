@@ -190,7 +190,7 @@ class _LocalCode(object):
                      if all(not fnmatch(name, ignore)
                             for ignore in self._ignores)))
         else:
-            with open(self._path) as f:
+            with open(self._path, 'rb') as f:
                 return _File(hashlib.md5(f.read()).hexdigest())
         
     def traverse(self):
@@ -205,7 +205,7 @@ class _LocalCode(object):
     def read_files(self, routes):
         contents = []
         for route in routes:
-            with open(self._get_path(route)) as f:
+            with open(self._get_path(route), 'rb') as f:
                 contents.append(f.read())
         return contents
 
@@ -220,7 +220,7 @@ class _LocalCode(object):
             os.mkdir(self._get_path(route))
         assert len(diff.save) == len(contents)
         for route, content in zip(diff.save, contents):
-            with open(self._get_path(route), 'w') as f:
+            with open(self._get_path(route), 'wb') as f:
                 f.write(content)
     
     
