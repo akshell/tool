@@ -104,13 +104,13 @@ class CommandTestCase(_ToolTestCase):
     def testHelp(self):
         main_help = self._launch([])
         self.assertEqual(self._launch('help'), main_help)
-        self.assertEqual(self._launch('help'), main_help)
-        login_help = self._launch('help login')
-        self.assertEqual(self._launch('login --help'), login_help)
-        get_help = self._launch('help get')
-        self.assertEqual(self._launch('get --help'), get_help)
-        self.assertEqual(self._launch('help login get'),
-                         '\n'.join([login_help, get_help]))
+        self.assertEqual(self._launch('--help'), main_help)
+        self.assertEqual(self._launch('help help'), self._launch('help -h'))
+        self.assertEqual(self._launch('help login'), self._launch('login -h'))
+        self.assertEqual(self._launch('help get'), self._launch('get --help'))
+        self.assertEqual(
+            self._launch('help login get'),
+            self._launch('login -h') + '\n' + self._launch('get -h'))
 
     def testVersion(self):
         version = 'akshell ' + akshell.__version__ + '\n'

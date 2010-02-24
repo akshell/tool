@@ -37,15 +37,17 @@ import akshell
 
 HELP = '''\
 Usage: akshell <command> [options] [args]
+Type "akshell help <command>" for help on a specific command.
 
 Available commands:
     login      login to the server and store credentials
-    logout     logout from the server and remove stored credentials
-    get        get data from app
-    put        put data to app
-    eval       evaluate expression in app
+    logout     logout from the server and remove the stored credentials
+    get        get application code from the server
+    put        put application code to the server
+    eval       evaluate an expression
+    help       print help for given commands or a help overview
 
-akshell is a tool for development access to http://akshell.com
+akshell is a tool for development access to http://www.akshell.com/
 '''
 
 
@@ -83,6 +85,12 @@ def help_command(args):
     if not args:
         print HELP,
         return
+    if args in (['--help'], ['-h']):
+        print '''\
+Usage: akshell help [COMMAND...]
+
+Print help for given commands of a help overview.'''
+        return
     is_first = True
     for command in args:
         try:
@@ -116,7 +124,7 @@ def login_command(args):
 def logout_command(args):
     parser = CommandOptionParser(
         usage='akshell logout',
-        description='Logout from the server and remove stored credentials.')
+        description='Logout from the server and remove the stored credentials.')
     parser.parse_args(args)
     akshell.logout()
     
@@ -151,8 +159,8 @@ def _transfer_command(direction, args, command_name, descr_title):
         description=descr_title + '''
 Unless "quiet" option is set print deleted entries (D mark),
 created directories (C mark) and saved files (S mark).
-LOCAL_PATH defaults to REMOTE_PATH base name if avaliable or
-current directory otherwise.
+LOCAL_PATH defaults to the REMOTE_PATH base name if avaliable or
+the current directory otherwise.
 ''',
         option_list=(Option('-c', '--clean',
                             default=False, action='store_true',
@@ -218,7 +226,7 @@ def eval_command(args):
     parser = CommandOptionParser(
         usage='Usage: akshell eval APP[:SPOT] EXPR',
         description='''\
-Evaluate EXPR in release or spot version of application.
+Evaluate EXPR in a release or spot version of an application.
 Print a value or an exception occured.
 ''',
         option_list=(FORCE_OPTION,))
