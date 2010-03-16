@@ -258,8 +258,7 @@ class _RemoteCode(object):
             owner_name = _get_own_name()
         self._url = (
             'http://%s/apps/%s/' % (SERVER, app_name) +
-            ('devs/%s/spots/%s' % (owner_name.lower().replace(' ', '-'),
-                                   spot_name)
+            ('devs/%s/spots/%s' % (owner_name.replace(' ', '-'), spot_name)
              if spot_name else
              'code'))
         self._path = re.sub('//+', '/', path.strip('/'))
