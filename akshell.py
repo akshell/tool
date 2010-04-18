@@ -305,7 +305,7 @@ class Remote(object):
         self._cookie = cookie
 
     def _request(self, *args):
-        return _request(*args, cookie=self._cookie)
+        return _request(*args, **{'cookie': self._cookie})
 
     def _traverse_dir(self):
         data = self._request(self._url + '/?etag&recursive').read()
