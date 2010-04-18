@@ -46,7 +46,7 @@ setup(
             },
         },
 
-    version='0.1',
+    version='0.2.0',
     url='http://www.akshell.com',
     author='Anton Korenyushkin',
     author_email='anton@akshell.com',
