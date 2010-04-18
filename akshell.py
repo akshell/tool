@@ -55,7 +55,11 @@ CONFIG_DIR = (os.path.join(os.environ['APPDATA'], 'Akshell')
 
 COOKIE_PATH = os.path.join(CONFIG_DIR, 'cookie')
 
+LOAD_COOKIE = False
+
 NAME_PATH = os.path.join(CONFIG_DIR, 'name')
+
+LOAD_NAME = False
 
 FROM_SERVER = True
 
@@ -87,11 +91,11 @@ class RequestError(Error):
 # Internals
 ################################################################################
 
-def _request(url, data=None, code=httplib.OK, cookie=None, headers=None):
+def _request(url, data=None, code=httplib.OK, headers=None, cookie=LOAD_COOKIE):
     headers = dict(headers) if headers else {}
     headers['Accept'] = 'text/plain'
     headers['User-Agent'] = 'akshell ' + __version__
-    if cookie is None:
+    if cookie is LOAD_COOKIE:
         cookie = cookielib.MozillaCookieJar(COOKIE_PATH)
         try:
             cookie.load()
@@ -224,7 +228,7 @@ class _LocalCode(object):
                 f.write(content)
     
     
-def _get_own_name():
+def _load_name():
     try:
         with open(NAME_PATH) as f:
             return f.read().strip()
@@ -252,10 +256,11 @@ def _encode_multipart(fields, files):
 
 
 class _RemoteCode(object):
-    def __init__(self, app_name, owner_name=None, spot_name=None, path=''):
-        assert not owner_name or spot_name
-        if spot_name and not owner_name:
-            owner_name = _get_own_name()
+    def __init__(self, app_name, owner_name=LOAD_NAME, spot_name=None, path='',
+                 cookie=LOAD_COOKIE):
+        assert owner_name is not None if spot_name else not owner_name
+        if spot_name and owner_name is LOAD_NAME:
+            owner_name = _load_name()
         self._url = (
             'http://%s/apps/%s/' % (SERVER, app_name) +
             ('devs/%s/spots/%s' % (owner_name.replace(' ', '-'), spot_name)
@@ -264,9 +269,13 @@ class _RemoteCode(object):
         self._path = re.sub('//+', '/', path.strip('/'))
         if self._path:
             self._url += '/' + urllib.quote(self._path)
+        self._cookie = cookie
+
+    def _request(self, *args):
+        return _request(*args, cookie=self._cookie)
 
     def _traverse_dir(self):
-        data = _request(self._url + '/?etag&recursive').read()
+        data = self._request(self._url + '/?etag&recursive').read()
         lines = data.split('\r\n') if data else []
         root = _Dir()
         dirs = [('', root)]
@@ -306,8 +315,8 @@ class _RemoteCode(object):
         if not routes:
             return []
         if routes == [[]]:
-            return [_request(self._url).read()]
-        response = _request(
+            return [self._request(self._url).read()]
+        response = self._request(
             self._url + '/?files=' +
             urllib.quote('\n'.join('/'.join(route) for route in routes)))
         boundary = response.headers['Content-Type'].rpartition('=')[2]
@@ -324,8 +333,8 @@ class _RemoteCode(object):
         files = [('save', '/'.join(route), content)
                  for route, content in zip(diff.save, contents)]
         content_type, body = _encode_multipart(fields, files)
-        _request(self._url + '/', body, httplib.FOUND,
-                 headers={'Content-Type': content_type})
+        self._request(self._url + '/', body, httplib.FOUND,
+                      {'Content-Type': content_type})
     
 ################################################################################
 # API
@@ -343,7 +352,7 @@ def login(name, password):
                                'password': password,
                                }),
              httplib.FOUND,
-             cookie)
+             cookie=cookie)
     try:
         os.mkdir(CONFIG_DIR)
     except OSError, error:
@@ -361,22 +370,24 @@ def logout():
         if error.errno != errno.ENOENT: raise
 
         
-def evaluate(app_name, spot_name, expr):
+def evaluate(app_name, spot_name, expr, cookie=LOAD_COOKIE):
     '''Evaluate expression in release or spot context'''
     response = _request('http://%s/apps/%s/eval/' % (SERVER, app_name),
                         urllib.urlencode({'spot': spot_name or '',
                                           'expr': expr,
-                                          }))
+                                          }),
+                        cookie=cookie)
     status, data = response.read().split('\n', 1)
     return (status == 'OK'), data
 
 
-def transfer(direction, app_name, owner_name=None, spot_name=None,
+def transfer(direction, app_name, owner_name=LOAD_NAME, spot_name=None,
              remote_path='', local_path=None,
-             ignores=IGNORES, clean=False):
+             ignores=IGNORES, clean=False, cookie=LOAD_COOKIE):
     local_code = _LocalCode(
         local_path or remote_path.rpartition('/')[2] or app_name, ignores)
-    remote_code = _RemoteCode(app_name, owner_name, spot_name, remote_path)
+    remote_code = _RemoteCode(
+        app_name, owner_name, spot_name, remote_path, cookie)
     src_code, dst_code = ((remote_code, local_code)
                           if direction == FROM_SERVER else
                           (local_code, remote_code))

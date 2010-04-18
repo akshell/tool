@@ -225,6 +225,12 @@ class WorkTestCase(_ToolTestCase):
         self.assertRaises(AssertionError,
                           akshell.get,
                           APP, owner_name=USER)
+        self.assertRaises(AssertionError,
+                          akshell.get,
+                          APP, owner_name=None, spot_name=SPOT)
+        self.assertRaises(akshell.RequestError,
+                          akshell.put,
+                          APP, local_path='.', cookie=None)
         akshell.logout()
         self.assertRaises(akshell.LoginRequiredError,
                           akshell.get,

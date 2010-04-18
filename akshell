@@ -137,7 +137,7 @@ def parse_app_owner_spot(string):
     try:
         owner, spot = owner_spot.split('@', 1)
     except ValueError:
-        return app, None, owner_spot
+        return app, akshell.LOAD_NAME, owner_spot
     return app, owner, spot
 
 
