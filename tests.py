@@ -185,10 +185,10 @@ class WorkTestCase(_ToolTestCase):
 
     def testGet(self):
         self._launch(['get', 'no-such-app'], code=1)
-        delete, create, save = akshell.get(APP, local_path='.')
-        self.assertEqual(delete, [])
-        self.assertEqual(create, [['dir'], ['dir', 'subdir']])
-        self.assertEqual(save, [['__main__.js'], ['dir', 'hello.txt']])
+        diff = akshell.transfer(akshell.Remote(APP), akshell.Local('.'))
+        self.assertEqual(diff.delete, [])
+        self.assertEqual(diff.create, [['dir'], ['dir', 'subdir']])
+        self.assertEqual(diff.save, [['__main__.js'], ['dir', 'hello.txt']])
         self.assertEqual(_read(os.path.join('dir', 'hello.txt')), 'hello world')
         os.remove('__main__.js')
         os.mkdir('__main__.js')
@@ -223,17 +223,17 @@ class WorkTestCase(_ToolTestCase):
 
     def testExceptions(self):
         self.assertRaises(AssertionError,
-                          akshell.get,
-                          APP, owner_name=USER)
+                          akshell.Remote,
+                          APP, USER)
         self.assertRaises(AssertionError,
-                          akshell.get,
-                          APP, owner_name=None, spot_name=SPOT)
+                          akshell.Remote,
+                          APP, None, SPOT)
         self.assertRaises(akshell.RequestError,
-                          akshell.put,
-                          APP, local_path='.', cookie=None)
+                          akshell.transfer,
+                          akshell.Local('.'), akshell.Remote(APP, cookie=None))
         akshell.logout()
         self.assertRaises(akshell.LoginRequiredError,
-                          akshell.get,
+                          akshell.Remote,
                           APP, spot_name=SPOT)
 
     def testPut(self):
@@ -275,6 +275,36 @@ class WorkTestCase(_ToolTestCase):
         self._launch(['eval', place, 'y=1'])
         self.assertEqual(self._launch(['eval', place, 'y']), '1\n')
         self.assert_('ReferenceError' in self._launch(['eval', '-f', APP, 'y']))
+
+    def testBuffer(self):
+        buffer = akshell.Buffer()
+        diff = akshell.transfer(akshell.Remote(APP), buffer)
+        self.assertEqual(diff.delete, [])
+        self.assertEqual(diff.create, [[], ['dir'], ['dir', 'subdir']])
+        self.assertEqual(diff.save, [['__main__.js'], ['dir', 'hello.txt']])
+        self.assertEqual(
+            buffer.data,
+            {'__main__.js': 'var x = 42;',
+             'dir': {'hello.txt': 'hello world', 'subdir': {}},
+             })
+        del buffer.data['dir']
+        buffer.data['other dir'] = {'subdir': {'file': 'text'}}
+        diff = akshell.transfer(buffer, akshell.Remote(APP), True)
+        self.assertEqual(diff.delete, [['dir']])
+        self.assertEqual(diff.create, [['other dir'], ['other dir', 'subdir']])
+        self.assertEqual(diff.save, [['other dir', 'subdir', 'file']])
+        diff = akshell.transfer(akshell.Remote(APP, path='other dir'),
+                                buffer,
+                                True)
+        self.assertEqual(diff.delete, [['__main__.js'], ['other dir']])
+        self.assertEqual(diff.create, [['subdir']])
+        self.assertEqual(diff.save, [['subdir', 'file']])
+        self.assertEqual(buffer.data['subdir']['file'], 'text')
+        self.assertRaises(akshell.DoesNotExistError,
+                          akshell.transfer,
+                          akshell.Buffer(), akshell.Remote(APP))
+        diff = akshell.transfer(akshell.Buffer({}), akshell.Remote(APP), True)
+        self.assertEqual(diff.delete, [['__main__.js'], ['other dir']])
         
 
 def suite():

@@ -151,7 +151,7 @@ FORCE_OPTION = Option(
     help='Don\'t ask for confirmation of release code actions')
 
 
-def _transfer_command(direction, args, command_name, descr_title):
+def _transfer_command(to_server, args, command_name, descr_title):
     parser = CommandOptionParser(
         usage=('Usage: akshell %s [options] '
                'APP[:[OWNER@]SPOT][/REMOTE_PATH] [LOCAL_PATH]'
@@ -174,7 +174,7 @@ Remove destination entries which don't have corresponding sources'''),
 colon separated list of ignored filename wildcards, defaults to "%s"'''
                             % ':'.join(akshell.IGNORES)),
                      ))
-    if direction == akshell.TO_SERVER:
+    if to_server:
         parser.add_option(FORCE_OPTION)
         parser.add_option('-e', '--expr',
                           help='''\
@@ -191,32 +191,35 @@ Evaluate EXPR after put, print a value or an exception''')
                   remote_path.rpartition('/')[2] or app_name)
     ignores = (akshell.IGNORES if opts.ignore is None else
                [ignore for ignore in opts.ignore.split(':') if ignore])
-    if (direction == akshell.TO_SERVER and
+    if (to_server and
         not (spot_name or opts.force or _confirm('Put release code'))):
         return
-    delete, create, save = akshell.transfer(
-        direction, app_name, owner_name, spot_name,
-        remote_path, local_path, ignores, opts.clean)
+    remote = akshell.Remote(app_name, owner_name, spot_name, remote_path)
+    local = akshell.Local(local_path, ignores)
+    src, dst = (local, remote) if to_server else (remote, local)
+    diff = akshell.transfer(src, dst, opts.clean)
     if not opts.quiet:
-        for prefix, routes in (('D', delete), ('C', create), ('S', save)):
+        for prefix, routes in (('D', diff.delete),
+                               ('C', diff.create),
+                               ('S', diff.save)):
             for route in routes:
-                print prefix, (os.path.join(local_path, *route)
-                               if direction == akshell.FROM_SERVER else
-                               '/'.join(([remote_path] if remote_path else []) +
-                                        route))
+                print prefix, ('/'.join(([remote_path] if remote_path else []) +
+                                        route)
+                               if to_server else
+                               os.path.join(local_path, *route))
     if getattr(opts, 'expr', None):
         print akshell.evaluate(app_name, spot_name, opts.expr)[1]
             
 
 def get_command(args):
-    _transfer_command(akshell.FROM_SERVER,
+    _transfer_command(False,
                       args,
                       'get',
                       'Get release or spot code from the server.')
 
 
 def put_command(args):
-    _transfer_command(akshell.TO_SERVER,
+    _transfer_command(True,
                       args,
                       'put',
                       'Put release or spot code to the server.')

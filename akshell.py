@@ -61,10 +61,6 @@ NAME_PATH = os.path.join(CONFIG_DIR, 'name')
 
 LOAD_NAME = False
 
-FROM_SERVER = True
-
-TO_SERVER = False
-
 IGNORES = ('*~', '*.bak', '.*', '#*', '*.orig')
 
 ################################################################################
@@ -114,16 +110,16 @@ def _request(url, data=None, code=httplib.OK, headers=None, cookie=LOAD_COOKIE):
     return response
 
 
-class _Diff(object):
+class Diff(object):
     def __init__(self):
         self.delete = []
         self.create = []
         self.save   = []
 
 
-class _Entry(object):
+class Entry(object):
     def diff(self, dst, clean):
-        diff = _Diff()
+        diff = Diff()
         if dst:
             self._do_diff(dst, clean, diff, [])
         else:
@@ -131,7 +127,7 @@ class _Entry(object):
         return diff
 
 
-class _Dir(_Entry):
+class Dir(Entry):
     def __init__(self, children=None):
         self._children = children or {}
 
@@ -144,7 +140,7 @@ class _Dir(_Entry):
             entry._create(diff, route + [name])
     
     def _do_diff(self, dst, clean, diff, route):
-        if isinstance(dst, _Dir):
+        if isinstance(dst, Dir):
             for name, src_entry in self._children.items():
                 child_route = route + [name]
                 try:
@@ -158,12 +154,12 @@ class _Dir(_Entry):
                     if name not in self._children:
                         diff.delete.append(route + [name])
         else:
-            if isinstance(dst, _File):
+            if isinstance(dst, File):
                 diff.delete.append(route)
             self._create(diff, route)
 
 
-class _File(_Entry):
+class File(Entry):
     def __init__(self, etag=None):
         self._etag = etag
 
@@ -171,31 +167,30 @@ class _File(_Entry):
         diff.save.append(route)
 
     def _do_diff(self, dst, clean, diff, route):
-        if isinstance(dst, _File):
+        if isinstance(dst, File):
             if self._etag == dst._etag:
                 return
-        elif isinstance(dst, _Dir):
+        elif isinstance(dst, Dir):
             diff.delete.append(route)
         diff.save.append(route)
 
 
-class _LocalCode(object):
-    def __init__(self, path, ignores):
+class Local(object):
+    def __init__(self, path, ignores=IGNORES):
         self._path = path
         self._ignores = ignores
 
     def _do_traverse(self):
         if os.path.isdir(self._path):
-            return _Dir(
-                dict((name,
-                      _LocalCode(os.path.join(self._path, name),
-                                 self._ignores)._do_traverse())
+            return Dir(
+                dict((name, Local(os.path.join(self._path, name),
+                                  self._ignores)._do_traverse())
                      for name in os.listdir(self._path)
                      if all(not fnmatch(name, ignore)
                             for ignore in self._ignores)))
         else:
             with open(self._path, 'rb') as f:
-                return _File(hashlib.md5(f.read()).hexdigest())
+                return File(hashlib.md5(f.read()).hexdigest())
         
     def traverse(self):
         if not os.path.exists(self._path):
@@ -226,8 +221,46 @@ class _LocalCode(object):
         for route, content in zip(diff.save, contents):
             with open(self._get_path(route), 'wb') as f:
                 f.write(content)
-    
-    
+
+
+class Buffer(object):
+    def __init__(self, data=None):
+        self.data = data
+
+    def _do_traverse(self):
+        if isinstance(self.data, dict):
+            return Dir(dict((name, Buffer(self.data[name])._do_traverse())
+                            for name in self.data))
+        else:
+            return File(hashlib.md5(self.data).hexdigest())
+        
+    def traverse(self):
+        if self.data is None:
+            raise DoesNotExistError('Buffer entry does not exist')
+        return self._do_traverse()
+
+    def _get(self, route):
+        result = self.data
+        for name in route:
+            result = result[name]
+        return result
+
+    def read_files(self, routes):
+        return [self._get(route) for route in routes]
+
+    def deploy(self, diff, contents):
+        for route in diff.delete:
+            del self._get(route[:-1])[route[-1]]
+        for route in diff.create:
+            if route:
+                self._get(route[:-1])[route[-1]] = {}
+            else:
+                self.data = {}
+        assert len(diff.save) == len(contents)
+        for route, content in zip(diff.save, contents):
+            self._get(route[:-1])[route[-1]] = content
+
+            
 def _load_name():
     try:
         with open(NAME_PATH) as f:
@@ -255,7 +288,7 @@ def _encode_multipart(fields, files):
     return 'multipart/form-data; boundary=' + boundary, '\r\n'.join(parts)
 
 
-class _RemoteCode(object):
+class Remote(object):
     def __init__(self, app_name, owner_name=LOAD_NAME, spot_name=None, path='',
                  cookie=LOAD_COOKIE):
         assert owner_name is not None if spot_name else not owner_name
@@ -277,7 +310,7 @@ class _RemoteCode(object):
     def _traverse_dir(self):
         data = self._request(self._url + '/?etag&recursive').read()
         lines = data.split('\r\n') if data else []
-        root = _Dir()
+        root = Dir()
         dirs = [('', root)]
         for line in lines:
             while not line.startswith(dirs[-1][0]):
@@ -286,14 +319,14 @@ class _RemoteCode(object):
             if line.endswith('/'):
                 name = line[len(parent_path):-1]
                 assert '/' not in name
-                dir = _Dir()
+                dir = Dir()
                 parent_dir.add(name, dir)
                 dirs.append((line, dir))
             else:
                 idx = line.rfind(' ')
                 name = line[len(parent_path):idx]
                 assert '/' not in name
-                parent_dir.add(name, _File(line[idx + 1:]))
+                parent_dir.add(name, File(line[idx + 1:]))
         return root
 
     def traverse(self):
@@ -301,7 +334,7 @@ class _RemoteCode(object):
             return self._traverse_dir()
         except RequestError, error:
             if error.code == httplib.MOVED_PERMANENTLY:
-                return _File()
+                return File()
             if (error.code == httplib.NOT_FOUND and
                 str(error).startswith('Entry ')):
                 raise DoesNotExistError('Remote entry "%s" does not exist'
@@ -378,25 +411,12 @@ def evaluate(app_name, spot_name, expr, cookie=LOAD_COOKIE):
     return (status == 'OK'), data
 
 
-def transfer(direction, app_name, owner_name=LOAD_NAME, spot_name=None,
-             remote_path='', local_path=None,
-             ignores=IGNORES, clean=False, cookie=LOAD_COOKIE):
-    local_code = _LocalCode(
-        local_path or remote_path.rpartition('/')[2] or app_name, ignores)
-    remote_code = _RemoteCode(
-        app_name, owner_name, spot_name, remote_path, cookie)
-    src_code, dst_code = ((remote_code, local_code)
-                          if direction == FROM_SERVER else
-                          (local_code, remote_code))
-    src_entry = src_code.traverse()
+def transfer(src, dst, clean=False):
+    src_entry = src.traverse()
     try:
-        dst_entry = dst_code.traverse()
+        dst_entry = dst.traverse()
     except DoesNotExistError:
         dst_entry = None
     diff = src_entry.diff(dst_entry, clean)
-    dst_code.deploy(diff, src_code.read_files(diff.save))
-    return diff.delete, diff.create, diff.save
-    
-
-get = lambda *args, **kwds: transfer(FROM_SERVER, *args, **kwds)
-put = lambda *args, **kwds: transfer(TO_SERVER, *args, **kwds)
+    dst.deploy(diff, src.read_files(diff.save))
+    return diff
