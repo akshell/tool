@@ -302,9 +302,6 @@ class _RemoteCode(object):
         except RequestError, error:
             if error.code == httplib.MOVED_PERMANENTLY:
                 return _File()
-            # TODO: remove this 'if' when public version will be launched
-            if error.code == httplib.FOUND:
-                raise LoginRequiredError()
             if (error.code == httplib.NOT_FOUND and
                 str(error).startswith('Entry ')):
                 raise DoesNotExistError('Remote entry "%s" does not exist'
