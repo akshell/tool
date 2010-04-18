@@ -187,7 +187,8 @@ Evaluate EXPR after put, print a value or an exception''')
     app_owner_spot, sep_, remote_path = args[0].partition('/')
     app_name, owner_name, spot_name = parse_app_owner_spot(app_owner_spot)
     remote_path = remote_path.strip('/')
-    local_path = args[1] if len(args) > 1 else remote_path.rpartition('/')[2]
+    local_path = (args[1] if len(args) > 1 else
+                  remote_path.rpartition('/')[2] or app_name)
     ignores = (akshell.IGNORES if opts.ignore is None else
                [ignore for ignore in opts.ignore.split(':') if ignore])
     if (direction == akshell.TO_SERVER and
@@ -195,8 +196,7 @@ Evaluate EXPR after put, print a value or an exception''')
         return
     delete, create, save = akshell.transfer(
         direction, app_name, owner_name, spot_name,
-        remote_path, local_path or '.',
-        ignores, opts.clean)
+        remote_path, local_path, ignores, opts.clean)
     if not opts.quiet:
         for prefix, routes in (('D', delete), ('C', create), ('S', save)):
             for route in routes:

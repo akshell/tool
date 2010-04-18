@@ -372,9 +372,10 @@ def evaluate(app_name, spot_name, expr):
 
 
 def transfer(direction, app_name, owner_name=None, spot_name=None,
-             remote_path='', local_path='.',
+             remote_path='', local_path=None,
              ignores=IGNORES, clean=False):
-    local_code = _LocalCode(local_path, ignores)
+    local_code = _LocalCode(
+        local_path or remote_path.rpartition('/')[2] or app_name, ignores)
     remote_code = _RemoteCode(app_name, owner_name, spot_name, remote_path)
     src_code, dst_code = ((remote_code, local_code)
                           if direction == FROM_SERVER else

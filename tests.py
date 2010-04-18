@@ -185,7 +185,7 @@ class WorkTestCase(_ToolTestCase):
 
     def testGet(self):
         self._launch(['get', 'no-such-app'], code=1)
-        delete, create, save = akshell.get(APP)
+        delete, create, save = akshell.get(APP, local_path='.')
         self.assertEqual(delete, [])
         self.assertEqual(create, [['dir'], ['dir', 'subdir']])
         self.assertEqual(save, [['__main__.js'], ['dir', 'hello.txt']])
