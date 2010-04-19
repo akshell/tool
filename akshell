@@ -157,10 +157,9 @@ def _transfer_command(to_server, args, command_name, descr_title):
                'APP[:[OWNER@]SPOT][/REMOTE_PATH] [LOCAL_PATH]'
                % command_name),
         description=descr_title + '''
-Unless "quiet" option is set print deleted entries (D mark),
-created directories (C mark) and saved files (S mark).
-LOCAL_PATH defaults to the REMOTE_PATH base name if avaliable or
-the current directory otherwise.
+Unless "quiet" option is set print deleted entries (D mark), created
+directories (C mark), and saved files (S mark). LOCAL_PATH defaults to
+the REMOTE_PATH base name if avaliable or APP otherwise.
 ''',
         option_list=(Option('-c', '--clean',
                             default=False, action='store_true',
